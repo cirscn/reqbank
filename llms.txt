@@ -56,14 +56,21 @@ tail -1 .agentdoc/harness/learning-log.jsonl   # 有新事件行 = 钩子已在�
 
 | 命令 | 参数 | 行为与退出码 |
 |---|---|---|
-| `init` | `--agents codex,claude`（可省略，自动探测） | 见副作用清单；末尾自动 check；探测不到 agent 或无法定位仓库 exit 2 |
+| `init` | `--agents codex,claude`（可省略，自动探测）；`--gate` 追加装配 pre-commit + CI workflow | 见副作用清单；末尾自动 check；探测不到 agent 或无法定位仓库 exit 2 |
 | `scope <任务>` | — | 任务 → REQ/TC 证据链，stdout JSONL |
-| `check` / `doctor` | `--strict` | 结构 + 双 lint；有问题 exit 1；`--strict` 把矛盾警告升级为失败 |
-| `verify` | `--turn <id>` / `--tc <scope:TC-001>`（可多个） | 默认取 learning-log 最近有召回的回合，执行命中 TC 的 V 命令；任一失败 exit 1 |
-| `report` | `--days N` `--json` | 召回命中率 / 冲突分布 / 阻断趋势 |
+| `check` / `doctor` | `--strict` | 结构 + 全部 lint（标签/矛盾/追溯完整性/生命周期/漂移/断言覆盖率）；有问题 exit 1；`--strict` 把警告升级为失败 |
+| `verify` | `--turn <id>` / `--tc <scope:TC-001>`（可多个）/ `--all`（全库枚举，CI 用） | 默认取 learning-log 最近有召回的回合，执行命中 TC 的 V 命令；任一失败 exit 1；逐条写 learning-log |
+| `gate` | `--staged` / `--base <ref>` / 默认工作区；`--json`；`--freeze` 冻结存量 | CI/pre-commit 判决：与钩子同源判定链（断言+n-gram）；确定性冲突 exit 1；引擎故障 exit 2（fail-closed） |
+| `status` | `--stale-days N` `--json` `--scope <模块>` | 条款验证三态派生（verified/unproven/stale/violated），从日志重算、不写回真源 |
+| `confirm <scope:REQ-id>` | — | 人审升级置信度 → confirmed（写索引第 5 列，幂等） |
+| `mine` | `--limit N`（可选 `HARNESS_LLM_DRAFT=1` 润色） | 四源考古候选 JSONL → inbox/ 草稿；永不直写 modules/ |
+| `reflect` | `--transcript <path>` | 重复冲突/零召回路径/会话纠错 → 条款建议写 inbox/ |
+| `report` | `--days N` `--json` `--snapshot [--check]` | 召回/冲突/终态矩阵/整改率/召回质量；快照棘轮不一致 exit 1 |
 | `impact <file...>` | — | 需 `.mex/graph.db`，返回调用邻居影响面 |
 | `update` | `--git` | npm registry 拉最新（默认）或 git 远端；只替换 `.harness/*`，绝不动真源 |
 | `smoke` / `version` | — | 临时仓库全链路自检 / 打印版本 |
+
+格式补充：requirements.md 可选 `## 断言` 节 `REQ-001 | no-delete|forbid-add|forbid-path | pattern`（确定性执法，Claude 侧写前拦截）；索引第 5 列 `active:confirmed` 可携带状态/置信度/`:warn` 执法档；内联抑制 `reqbank-ignore: <scope:id>`（可见可数）。
 
 ## 钩子行为（引擎只有一套，四事件）
 

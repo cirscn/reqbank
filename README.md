@@ -108,16 +108,33 @@ reqbank scope "修复 useFetch 的错误提示去重问题"
 
 | 命令 | 作用 |
 |---|---|
-| `reqbank init --agents codex,claude` | 初始化脚手架 + 渲染 agent 适配器 |
+| `reqbank init --agents codex,claude` | 初始化脚手架 + 渲染 agent 适配器；`--gate` 追加装配 pre-commit 钩子与 CI workflow |
 | `reqbank scope "<任务>"` | 任务 → REQ/TC 证据链（JSONL） |
-| `reqbank check [--strict]` | 结构完整性 + 标签覆盖 lint + 矛盾条款 lint |
-| `reqbank verify [--tc <id>]` | 执行命中 TC 的验证命令（"命中即测"机械化）；破坏性命令确定性拒绝 |
-| `reqbank report [--days 7] [--json]` | 召回命中率 / 冲突分布 / 阻断趋势 |
+| `reqbank check [--strict]` | 结构完整性 + 标签覆盖 + 矛盾/追溯完整性/生命周期/漂移 lint |
+| `reqbank verify [--tc <id>] [--all]` | 执行命中 TC 的验证命令（"命中即测"机械化）；`--all` 全库枚举（CI）；破坏性命令确定性拒绝 |
+| `reqbank gate [--staged\|--base <ref>] [--freeze] [--json]` | CI/pre-commit 判决入口——与钩子同源判定链，exit 1=确定性冲突；`--freeze` 冻结存量（棘轮） |
+| `reqbank status [--stale-days 30] [--json]` | 条款验证状态三态派生（verified/unproven/stale/violated），从日志重算不写回真源 |
+| `reqbank confirm <scope:REQ-id>` | 人审升级置信度 inferred/gap → confirmed（写索引第 5 列，幂等） |
+| `reqbank mine [--limit 20]` | 冷启动考古：instruction/git-fix/todo/hotspot 四源候选 → inbox/ 草稿区（永不直写 modules/） |
+| `reqbank reflect [--transcript <path>]` | 违规回流：重复冲突/零召回路径/会话纠错 → 条款建议写 inbox/ |
+| `reqbank report [--days 7] [--json] [--snapshot [--check]]` | 召回命中率/冲突分布/REQ 终态矩阵/整改率/召回质量；`--snapshot` 快照棘轮（度量即门禁） |
 | `reqbank impact <file...>` | 基于 `.mex/graph.db` 的调用邻居影响面 |
 | `reqbank update` | 升级引擎（npm registry，`--git` 走远端） |
 | `reqbank smoke` / `version` / `doctor` | 自检 / 版本 / 健康诊断 |
 
 ## 可选增强层
+
+### 条款断言层（把"不得"编译成机器可判规则）
+
+requirements.md 可选 `## 断言` 节，行格式 `REQ-001 | no-delete|forbid-add|forbid-path | <pattern>`。断言在 n-gram 分类器**之前**匹配、命中即确定性 conflict（零 LLM）：`no-delete` 抓守卫被删、`forbid-add` 确定性捕获"新增式违反"、`forbid-path` 保护敏感路径。Claude Code 侧由 PreToolUse 钩子**写前拦截**；`reqbank check` 对含禁止语义却无断言的条款给 compile-weak 提示。
+
+### 条款生命周期与置信度（索引第 5 列）
+
+索引行可选第 5 列：`REQ-001 | tags | TC-001 | active:confirmed | 标题`——状态 `active|draft|superseded>REQ-x`、置信度 `confirmed|inferred|gap`、执法档 `:warn`（conflict 降级不硬拦）。非 active 条目不参与召回/执法；`reqbank confirm` 人审升级；`reqbank status` 从日志派生验证三态。误报可内联抑制：diff 中 `reqbank-ignore: <scope:id>`（必须可见可数）。
+
+### Stop 自动验证命中 TC（`HARNESS_STOP_VERIFY=1`）
+
+开启后收尾时对冲突条款真跑其 TC：TC 失败 → block 引用 TC id；可执行 TC 全过 → 冲突降级放行（守卫消失但测试绿，交人工确认）。危险命令确定性拒绝。
 
 ### LLM critic（捕获新增式违反禁止类需求）
 
@@ -165,10 +182,10 @@ reqbank update --git  # 或走 git 远端（HARNESS_KIT_URL 可覆盖）
 
 引擎只有一套，但各工具协议能力不同，**执法强度因 agent 而异**：
 
-| Agent | 注册位置 | 回合召回注入 | 编辑后 critic | Stop 硬拦截 | 已知边界 |
-|---|---|---|---|---|---|
-| Claude Code | `.claude/settings.json` | ✅ additionalContext 强制推送 | ✅ 分类+注入+审计 | ✅ `decision:block` | Windows 需 Git Bash |
-| Codex CLI | `.codex/hooks.json` | ✅ 同上 | ✅ 同上 | ✅ 兼容两种 block 形状 | 多层配置全部加载：包内会话由包内 hooks 独占，根桥自动 fail-open 让位 |
+| Agent | 注册位置 | 回合召回注入 | 写前拦截 | 编辑后 critic | Stop 硬拦截 | 已知边界 |
+|---|---|---|---|---|---|---|
+| Claude Code | `.claude/settings.json` | ✅ additionalContext 强制推送 | ✅ PreToolUse deny（断言层，Edit/Write/MultiEdit） | ✅ 分类+注入+审计 | ✅ `decision:block` | Windows 需 Git Bash |
+| Codex CLI | `.codex/hooks.json` | ✅ 同上 | ❌ 协议无 PreToolUse 事件 | ✅ 同上 | ✅ 兼容两种 block 形状 | 多层配置全部加载：包内会话由包内 hooks 独占，根桥自动 fail-open 让位 |
 | Grok | `.grok/hooks` + rules 文件中继 | ⚠️ 写入 rules 文件，agent 同回合手读 | ⚠️ 仅审计日志 | ❌ 协议不允许 | 被动钩子 stdout 被忽略；多会话 rules 文件 last-writer-wins |
 | 无钩子工具（Cursor 等） | 仅 AGENTS.md 指令 | ❌ 手动 `reqbank scope` | ❌ | ❌ | 建议配合 CI 门禁补偿 |
 
