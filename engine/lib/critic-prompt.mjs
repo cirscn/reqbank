@@ -190,6 +190,76 @@ const changedLineParts = (diff) => {
   };
 };
 
+// P5 L1 标点感知：! && || 不再被 normalizeText 丢弃，从原始 diff 行提取布尔三元组。
+// 归一化把 `user && active` 与 `!user || active` 压成同一 token 集——极性/连接符翻转是
+// n-gram 分类器的结构性盲区（removedHits/addedHits 完全对称），必须看标点才能判定。
+const BOOL_TRIPLE = /(!?)[ \t]*([A-Za-z_$][\w$]*)[ \t]*(&&|\|\|)[ \t]*(!?)[ \t]*([A-Za-z_$][\w$]*)/g;
+
+const codeLinesOf = (diff, side) => {
+  const lines = [];
+  const prefix = side === 'added' ? '+' : '-';
+  const other = side === 'added' ? '-' : '+';
+  for (let line of String(diff ?? '').split(/\r?\n/)) {
+    if (!line.startsWith(prefix) || line.startsWith(`${prefix}${prefix}${prefix}`)) continue;
+    if (line.startsWith(other)) continue;
+    line = line.slice(1);
+    // 纯注释行不参与翻转判定（文档性提及不算语义翻转）
+    if (/^\s*(\/\/|\*|#|--)/.test(line)) continue;
+    lines.push(line.replace(/\/\/.*$/, '')); // 去行尾注释
+  }
+  return lines;
+};
+
+// 三元组规范化键：操作数名排序 + 按名对齐极性，操作数交换（a&&b ↔ b&&a）不视为翻转。
+const tripleKey = (t) => [t.l, t.r].map((name, i) => `${name}:${(i === 0 ? t.lNeg : t.rNeg) ? '!' : ''}`)
+  .sort()
+  .join(` ${t.op} `);
+
+const triplesOf = (lines) => {
+  const map = new Map(); // tripleKey -> 三元组（同名同构只记一次）
+  for (const line of lines) {
+    for (const match of line.matchAll(BOOL_TRIPLE)) {
+      const triple = { l: match[2], lNeg: match[1] === '!', op: match[3], r: match[5], rNeg: match[4] === '!', line: line.trim().slice(0, 160) };
+      const key = tripleKey(triple);
+      if (!map.has(key)) {
+        map.set(key, triple);
+      }
+    }
+  }
+  return map;
+};
+
+/**
+ * 确定性翻转检测：删除侧与新增侧存在同操作数三元组，但连接符（&&↔||）
+ * 或任一操作数极性（裸 ↔ !前缀）不同，即为语义翻转。
+ * 已知等价改写 `a||b` ↔ `!a&&!b`（De Morgan）也会被判翻转——宁要可抑制的误拦，不要静默放行。
+ */
+export const detectBooleanFlip = (diff) => {
+  const removed = triplesOf(codeLinesOf(diff, 'removed'));
+  const added = triplesOf(codeLinesOf(diff, 'added'));
+  // 按操作数名集合配对（key 含操作符/极性，翻转双方 key 必不同）
+  const namesKey = (t) => [t.l, t.r].sort().join('\u0000');
+  const removedByNames = new Map();
+  for (const triple of removed.values()) {
+    const nk = namesKey(triple);
+    if (!removedByNames.has(nk)) removedByNames.set(nk, triple);
+  }
+  const flips = [];
+  for (const triple of added.values()) {
+    const counterpart = removedByNames.get(namesKey(triple));
+    if (!counterpart) continue;
+    const opFlip = counterpart.op !== triple.op;
+    const polarityFlip = counterpart.lNeg !== triple.lNeg || counterpart.rNeg !== triple.rNeg;
+    if (!opFlip && !polarityFlip) continue;
+    flips.push({
+      kind: opFlip && polarityFlip ? 'flip:both' : opFlip ? 'flip:operator' : 'flip:polarity',
+      removed: counterpart.line,
+      added: triple.line
+    });
+  }
+  return flips;
+};
+
 const CJK_NEGATION_TOKENS = ['不得', '不能', '禁止', '不允许', '无需', '不再', '一律不', '严禁'];
 
 // 拉丁否定词必须整词匹配：notification 内含子串 not/no，曾把真实违规的拦截静默抑制。
@@ -259,6 +329,33 @@ export const runCriticReview = ({ diff, recalledReqs }) => {  if (!recalledReqs?
     }
   }
 
+  // P5 L1 标点感知翻转：同操作数布尔三元组的 &&↔|| / 极性互换是确定性语义反转。
+  // 归因给带禁止/守卫语义的召回条款——守卫逻辑被反转正是它们要拦的事。
+  const flips = detectBooleanFlip(diff);
+  let flipNote = null;
+  if (flips.length) {
+    for (const record of recalledReqs) {
+      if (!hasProhibitionSignal(record)) continue;
+      if (conflicts.includes(record) || covered.includes(record)) {
+        if (covered.includes(record)) {
+          covered.splice(covered.indexOf(record), 1);
+          conflicts.push(record);
+        }
+        continue;
+      }
+      conflicts.push(record);
+      weak.splice(weak.indexOf(record), 1);
+      classifications.push({
+        id: `${record.scope}:${record.id}`,
+        kind: 'conflict',
+        flip: flips[0]
+      });
+    }
+    if (conflicts.length) {
+      flipNote = `Boolean flip: ${flips.map((f) => f.kind).join(', ')}（同操作数 &&↔|| / 极性互换）`;
+    }
+  }
+
   if (conflicts.length) {
     return {
       severity: 'critical',
@@ -266,7 +363,10 @@ export const runCriticReview = ({ diff, recalledReqs }) => {  if (!recalledReqs?
       weak,
       conflicts,
       classifications,
-      notes: 'Deterministic conflict signal: removed negated/guardrail terms from recalled records without replacement.'
+      flips,
+      notes: flipNote
+        ? `${flipNote} — 守卫语义被反转，需人工确认或 reqbank-ignore 抑制。`
+        : 'Deterministic conflict signal: removed negated/guardrail terms from recalled records without replacement.'
     };
   }
   if (weak.length > 0) {

@@ -1,2 +1,5 @@
 # 引擎与真源模板一律 LF：Windows checkout（autocrlf）换成 CRLF 会污染解析与逐字节断言
 * text=auto eol=lf
+
+# P5 vendored 静态资产（tree-sitter WASM）：一次性提交、永不手改、diff 折叠
+engine/vendor/** linguist-generated=true

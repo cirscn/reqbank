@@ -107,7 +107,7 @@ const main = async () => {
   }
 
   // 断言层在 n-gram 分类器之前：闭集规则匹配，命中即确定性 conflict（含归因）
-  const assertionHits = runAssertionReview({ diff, filePaths, recalledReqs, matchPathPattern });
+  const assertionHits = await runAssertionReview({ diff, filePaths, recalledReqs, matchPathPattern });
 
   let verdict = runCriticReview({ diff, recalledReqs });
   if (assertionHits.length) {
@@ -199,7 +199,8 @@ const main = async () => {
       id: `${hit.record.scope}:${hit.record.id}`,
       kind: hit.kind,
       pattern: hit.pattern,
-      line: hit.matchedLine
+      line: hit.matchedLine,
+      ast: hit.confirmedByAst ?? null
     })),
     critic_severity: verdict.severity,
     critic_signal: verdict.severity,

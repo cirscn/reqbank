@@ -48,8 +48,10 @@ const TEST_SECTIONS = new Set(['索引', '内容索引', '测试用例']);
 // P2 条款断言层：把「不得做什么」从自然语言编译成闭集可执行检查。
 // kinds：no-delete（删除行含 pattern → conflict，catch 守卫被删）/ forbid-add（新增行含 pattern → conflict，
 // 确定性捕获「新增式违反」——此前只有开 LLM critic 才能抓）/ forbid-path（改动路径命中 glob → conflict）。
-export const ASSERTION_KINDS = new Set(['no-delete', 'forbid-add', 'forbid-path']);
-const ASSERTION_LINE = /^(G?REQ-\d{3,})\s\|\s(no-delete|forbid-add|forbid-path)\s\|\s(.+)$/;
+// P5 L2 结构化断言：forbid-call（AST 确认的调用点，注释/字符串提及不误报）/
+// no-negate（守卫标识符被取反 !x / not x）——经 engine/lib/ast.mjs 语法包懒加载，无语法包语言退回字符串层。
+export const ASSERTION_KINDS = new Set(['no-delete', 'forbid-add', 'forbid-path', 'forbid-call', 'no-negate']);
+const ASSERTION_LINE = /^(G?REQ-\d{3,})\s\|\s(no-delete|forbid-add|forbid-path|forbid-call|no-negate)\s\|\s(.+)$/;
 
 // P3 生命周期 + 置信度：索引行可选第 5 列（缺省 active:confirmed，旧 4 列格式零迁移）：
 //   REQ-001 | tags | TC-001 | active:confirmed | 标题
@@ -134,7 +136,7 @@ const parseRequirements = (file, scope) => {
         }
         assertionsByReq.get(match[1]).push({ kind: match[2], pattern: match[3].trim() });
       } else if (line.trim() && !line.startsWith('#')) {
-        parseWarnings.push({ kind: 'warning', code: 'assertion-format', message: `${file} 断言行格式无法识别（应为 REQ-id | no-delete|forbid-add|forbid-path | pattern）：${line.trim().slice(0, 60)}` });
+        parseWarnings.push({ kind: 'warning', code: 'assertion-format', message: `${file} 断言行格式无法识别（应为 REQ-id | no-delete|forbid-add|forbid-path|forbid-call|no-negate | pattern）：${line.trim().slice(0, 60)}` });
       }
     }
   }

@@ -94,7 +94,15 @@ B1-B3、B8 是纯 bug fix；B5-B7 属语义修复，纳入 P1/P2 的设计一并
 - [x] **Stop 自动验证命中 TC**（M-L，E5）：Stop 对判 conflict 的 REQ 自动执行关联 TC 的 V 命令（复用 verify 的 UNSAFE_CHECKS fail-closed）：TC 失败→block 引用 TC id；TC 通过→降级 warning 附人工确认提示。命令执行风险边界保守设计。
 - 验收：有 git 历史仓库无 LLM env 下 mine 输出候选 JSONL 且每条含 evidence；1000 条真源 scope 耗时降至首扫 1/5 内；构造 critical 回合后 inbox 出现事件卡；5MB 日志 Stop 耗时显著下降。
 
+### P5 语义检测升级：标点 token + tree-sitter WASM（✅ 2026-08-25 实施）
+主题：关闭确定性检测的最后两个盲区（极性翻转 / 连接符翻转），把断言层从"字面匹配"升级为"语法感知"。对标 arai（tree-sitter + 预筛），但走 WASM 通道守住纯 Node / 全平台 / 零安装底线。
+- [x] **L1 标点感知 token**（S）：`detectBooleanFlip` 从原始 diff 行提取布尔三元组（注释行豁免），同操作数下 `&&`↔`||` 或裸/取反互换判确定性 conflict，归因给带禁止语义的召回条款；操作数交换（a&&b↔b&&a）等价改写不误报。全语言生效（含无语法包语言），critic/Stop/gate 一处实现自动继承。验收：对抗评测 ATK-FLIP 从"已知盲区"翻转为"已拦截"（另加 ATK-FLIP-BENIGN 等价改写对照）。
+- [x] **L2 tree-sitter WASM**（M-L）：vendor 运行时 web-tree-sitter@0.22.6（~256KB）+ 语法包 7 件 **JS/JSX、TS、TSX、Java、Python、Go、Rust** brotli 压缩（~539KB，合计 ~800KB，优于 2.1MB 预估）、按文件后缀懒加载（LAZY 用例验证用不到的语言不进内存）、字符串预筛命中才解析（无断言回合零 WASM 成本）、片段用完即弃（无索引无漂移）。断言新增 `forbid-call`（AST 确认调用点，注释/字符串提及被干净解析推翻——JAVA-MENTION 用例）与 `no-negate`（结构化极性守卫，`!x`/`not x`）。`reqbank lang add/list/remove` 按需扩展语言（npm registry 下载 tree-sitter-wasms 语法包 → brotli → `.agentdoc/harness/vendor-lang/` 随仓库共享；kotlin 端到端用例 LANG-ADD/USE/REMOVE）。声明式配置（YAML/JSON/HTML/CSS）明确不做 AST——字符串断言层即正确工具。
+- 设计约束落实：语法包静态 .wasm（Node 22 内置 WASM 引擎执行，Windows/Linux/macOS/ARM 一份通用）；`engine/vendor/**` .gitattributes 标记 linguist-generated；VENDOR.json sha256 清单 + `reqbank check --vendor` 完整性校验（TAMPER 用例：篡改被抓、还原恢复）；版本配对约束记录于 vendor NOTICE.md（web-tree-sitter 0.26 拒绝旧 dylink 格式语法包，升级必须成对验证）；四处执法入口（pre-critic/critic/Stop/gate）经 assertions.mjs 一处实现自动继承（PRE-DENY 用例验证写前拦截）。
+- 验收：Java 真实文件 forbid-call 拦截 + 注释提及不误报（JAVA-CALL/JAVA-MENTION）✅；TS 文件 `!x` 翻转拦截（TS-NEGATE）✅；语法包懒加载内存验证（LAZY）✅；六套回归（P0-P5 + 对抗）104 用例 + 108 全量零回归 ✅。
+
 ### 机会项（顺手做，不占里程碑）
+- Stop 完成声明审查（cc-enforcer 九层思路：对冲词/盘上 mtime 对照/声称改了 X 但文件未动）——与终态裁决天然互补，正交的一层。
 - `reqbank why <file>`：code→REQ 反查 + 验证状态列（D6，S）；与 critic 共享路径匹配代码保证"查询=执法"。
 - stamp git trailers：`Reqbank-Passing: true` 写进提交元数据（C6，S）；对标 agent-spec stamp。
 - PreCompact 钩子 + SessionStart 契约摘要（R4，M）；Codex 无此事件则能力矩阵如实标注。
@@ -111,5 +119,6 @@ B1-B3、B8 是纯 bug fix；B5-B7 属语义修复，纳入 P1/P2 的设计一并
 | P2 | 条款可执行化 + CI 同源 | 断言层、PreToolUse deny、gate + init --gate、LLM critic 升级 | B5 B6 |
 | P3 | 银行账目 | 生命周期、置信度、status 派生、漂移检测、report 2.0、门禁分级 | — |
 | P4 | 考古入金 | mine、reflect、缓存索引、日志轮转、Stop 自动 TC | B4（transcript 接线） |
+| P5 | 语义检测升级 | L1 标点翻转判定、L2 tree-sitter WASM 结构化断言（forbid-call/no-negate）、lang 命令 | 极性/连接符翻转盲区 |
 
 各提案的完整设计细节（含全部 文件:行号 引用与对标机制出处）保留在本次五路深研报告中；实施任一项时建议先重读对应维度的源码现状段落。

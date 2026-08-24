@@ -80,7 +80,7 @@ const main = async () => {
     if (!recalled.length) {
       continue;
     }
-    const assertionHits = runAssertionReview({ diff, filePaths: [file], recalledReqs: recalled, matchPathPattern });
+    const assertionHits = await runAssertionReview({ diff, filePaths: [file], recalledReqs: recalled, matchPathPattern });
     for (const hit of assertionHits) {
       conflicts.push({
         id: `${hit.record.scope}:${hit.record.id}`,

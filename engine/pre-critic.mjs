@@ -39,7 +39,7 @@ const main = async () => {
   const filePaths = claudeEdit.filePaths.map((filePath) => normalizeChangedFilePath(filePath, { cwd: input.cwd ?? '' }));
   const diff = claudeEdit.text;
   const recalledReqs = recallByPaths(filePaths, { recordKind: 'req-only', moduleQuota: 2 });
-  const hits = runAssertionReview({ diff, filePaths, recalledReqs, matchPathPattern });
+  const hits = await runAssertionReview({ diff, filePaths, recalledReqs, matchPathPattern });
 
   const denied = hits.length > 0;
   const output = denied

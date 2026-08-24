@@ -126,7 +126,13 @@ reqbank scope "修复 useFetch 的错误提示去重问题"
 
 ### 条款断言层（把"不得"编译成机器可判规则）
 
-requirements.md 可选 `## 断言` 节，行格式 `REQ-001 | no-delete|forbid-add|forbid-path | <pattern>`。断言在 n-gram 分类器**之前**匹配、命中即确定性 conflict（零 LLM）：`no-delete` 抓守卫被删、`forbid-add` 确定性捕获"新增式违反"、`forbid-path` 保护敏感路径。Claude Code 侧由 PreToolUse 钩子**写前拦截**；`reqbank check` 对含禁止语义却无断言的条款给 compile-weak 提示。
+requirements.md 可选 `## 断言` 节，行格式 `REQ-001 | no-delete|forbid-add|forbid-path|forbid-call|no-negate | <pattern>`。断言在 n-gram 分类器**之前**匹配、命中即确定性 conflict（零 LLM）：`no-delete` 抓守卫被删、`forbid-add` 确定性捕获"新增式违反"、`forbid-path` 保护敏感路径。Claude Code 侧由 PreToolUse 钩子**写前拦截**；`reqbank check` 对含禁止语义却无断言的条款给 compile-weak 提示。
+
+### 语法感知层（P5：标点翻转 + tree-sitter WASM）
+
+- **标点翻转判定（全语言，零依赖）**：`user && active` 被改成 `!user || active` 这类极性/连接符翻转是 n-gram 的结构性盲区——token 集完全对称。引擎现从原始 diff 提取布尔三元组，同操作数下 `&&↔||` 或裸/取反互换即判确定性 conflict（操作数交换等价改写不误报）。
+- **结构化断言（JS/TS/TSX/Java/Python/Go/Rust）**：`forbid-call` 只拦 AST 确认的真实调用点——注释和字符串里的提及不误报；`no-negate` 拦截守卫标识符被取反（`!x` / `not x`）。实现为 vendored tree-sitter WASM（~800KB 静态资产，brotli 压缩语法包懒加载，零 npm 运行时依赖，Node 22 内置 WASM 引擎全平台）。字符串预筛不命中的回合零解析成本；无语法包语言退回字符串层照拦。`reqbank check --vendor` 校验资产完整性（sha256 对照 `engine/vendor/tree-sitter/VENDOR.json`）。
+- **语言扩展**：`reqbank lang add kotlin --ext .kt` 按需下载语法包到 `.agentdoc/harness/vendor-lang/`（随仓库共享给协作者）；`lang list` / `lang remove` 管理。YAML/JSON/HTML/CSS 等声明式配置明确不做 AST——字符串断言层即正确工具。
 
 ### 条款生命周期与置信度（索引第 5 列）
 

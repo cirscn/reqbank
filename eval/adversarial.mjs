@@ -134,11 +134,18 @@ const lastLogOf = (root, event, turn) => readFileSync(join(root, '.agentdoc', 'h
     `逐次 severity=${JSON.stringify(severities)}，Stop=${JSON.parse(stopAtk1.stdout).decision}`);
   gitAt(root, ['checkout', '--', 'src/demo/guard.ts']);
 
-  // ATK2 语义翻转（!flag / &&→||）：已知盲区——确定性层不误拦也不误放，记录在案
+  // ATK2 语义翻转（!flag / &&→||）：L1 标点感知 token 拦截（同操作数 &&↔|| / 极性互换）
   criticRun(root, 'atk2', patchOf('src/demo/guard.ts', ['  const ok = user && active;'], ['  const ok = !user || active;']));
   const atk2 = lastLogOf(root, 'PostToolUse', 'atk2');
-  test('ATK-FLIP', '语义翻转（!x / &&→||）为已知盲区：不误拦（确定性层不猜语法语义）',
-    atk2.critic_severity !== 'critical', `severity=${atk2.critic_severity}（AST 级检测列为机会项）`);
+  test('ATK-FLIP', '语义翻转（!x / &&→||）拦截：守卫语义条款升 conflict',
+    atk2.critic_severity === 'critical' && (atk2.conflict_ids ?? []).includes('demo:REQ-001'),
+    `severity=${atk2.critic_severity} conflicts=${JSON.stringify(atk2.conflict_ids)}`);
+
+  // ATK2b 翻转误拦对照：操作数交换/纯重命名不是翻转，不升 conflict
+  criticRun(root, 'atk2b', patchOf('src/demo/guard.ts', ['  const ok = user && active;'], ['  const ok = active && user;']));
+  const atk2b = lastLogOf(root, 'PostToolUse', 'atk2b');
+  test('ATK-FLIP-BENIGN', '等价改写（操作数交换 a&&b→b&&a）不误拦',
+    atk2b.critic_severity !== 'critical', `severity=${atk2b.critic_severity}`);
 
   // ATK3 路径逃逸：违规写进未登记路径 → 零召回放行（记录逃生通道；gate/reflect 会提示登记模块）
   criticRun(root, 'atk3', patchOf('src/nowhere/escape.ts', ['  if (isMessageHandledError(error)) return;'], ['  bypass();']));

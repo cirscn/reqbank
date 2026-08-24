@@ -478,7 +478,133 @@ const cmdCheck = async (rest = []) => {
     }
     process.exit(1);
   }
+  // --vendor：P5 vendor 资产完整性（sha256 对照 VENDOR.json），不符 exit 1
+  if (rest.includes('--vendor')) {
+    const { verifyVendorAssets } = await import(join(ENGINE_DIR, 'lib', 'ast.mjs'));
+    const vendorProblems = verifyVendorAssets();
+    if (vendorProblems.length) {
+      console.error(`[reqbank] vendor check failed (${vendorProblems.length}):`);
+      for (const problem of vendorProblems) {
+        console.error(`  - ${problem}`);
+      }
+      process.exit(1);
+    }
+    console.log('[reqbank] vendor check passed（AST 资产完整）');
+    return;
+  }
   console.log('[reqbank] check passed');
+};
+
+// P5 reqbank lang：语法感知语言扩展（结构化断言 forbid-call/no-negate 的语法包管理）。
+//   lang list                     内置语言 + 项目扩展
+//   lang add <name> --ext .xx     从 npm 下载语法包 → brotli → .agentdoc/harness/vendor-lang/（随仓库共享）
+//   lang remove <name>            移除项目扩展
+// 来源固定 tree-sitter-wasms@0.1.13：与 vendored 运行时 web-tree-sitter@0.22.6 ABI 配对（NOTICE.md）。
+const GRAMMAR_SOURCE = { package: 'tree-sitter-wasms', version: '0.1.13' };
+
+const cmdLang = async (rest = []) => {
+  const [action, name] = rest;
+  const root = projectRoot() ?? gitRoot();
+  if (!root) {
+    console.error('[reqbank] no scaffold found (run init)');
+    process.exit(2);
+  }
+  const vendorLangDir = join(root, '.agentdoc', 'harness', 'vendor-lang');
+  const mapPath = join(vendorLangDir, 'lang-map.json');
+  const readMap = () => {
+    try {
+      return JSON.parse(readFileSync(mapPath, 'utf8'));
+    } catch {
+      return {};
+    }
+  };
+  const { builtinAstLanguages } = await import(join(ENGINE_DIR, 'lib', 'ast.mjs'));
+
+  if (action === 'list') {
+    const map = readMap();
+    const byLanguage = {};
+    for (const [ext, language] of Object.entries(map)) {
+      (byLanguage[language] ??= []).push(ext);
+    }
+    console.log(`内置（随引擎 vendor）：${builtinAstLanguages().join(' ')}`);
+    const extras = Object.keys(byLanguage);
+    console.log(extras.length ? `项目扩展（vendor-lang/）：${extras.map((l) => `${l}(${byLanguage[l].join(' ')})`).join(' ')}` : '项目扩展：无（lang add <name> --ext .xx 按需扩展）');
+    return;
+  }
+
+  if (action === 'add') {
+    if (!name || !/^[a-z0-9_]+$/i.test(name)) {
+      console.error('[reqbank] usage: reqbank lang add <grammar-name> --ext .xx[,.yy]');
+      console.error('  grammar-name 为 tree-sitter 语法包名（如 kotlin、ruby、scala）');
+      process.exit(2);
+    }
+    const extFlagIndex = rest.indexOf('--ext');
+    const exts = extFlagIndex > -1 ? String(rest[extFlagIndex + 1] ?? '').split(',').map((e) => e.trim()).filter((e) => e.startsWith('.')) : [];
+    if (!exts.length) {
+      console.error('[reqbank] 需要 --ext 指定文件后缀（如 --ext .kt）');
+      process.exit(2);
+    }
+    const member = `package/out/tree-sitter-${name}.wasm`;
+    const url = `https://registry.npmjs.org/${GRAMMAR_SOURCE.package}/-/${GRAMMAR_SOURCE.package}-${GRAMMAR_SOURCE.version}.tgz`;
+    const tmp = mkdtempSync(join(tmpdir(), 'reqbank-lang-'));
+    try {
+      const tgzPath = join(tmp, 'src.tgz');
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`下载失败 ${response.status}：${url}`);
+      }
+      writeFileSync(tgzPath, Buffer.from(await response.arrayBuffer()));
+      // tar 直出成员到 stdout（跨平台：Windows 10+ 自带 bsdtar；无 shell 引号问题）
+      const extracted = spawnSync('tar', ['-xOf', tgzPath, member], { encoding: 'buffer', maxBuffer: 32 * 1024 * 1024 });
+      if (extracted.status !== 0 || !extracted.stdout?.length) {
+        throw new Error(`语法包 ${name} 不在 ${GRAMMAR_SOURCE.package}@${GRAMMAR_SOURCE.version}（tar 成员缺失）`);
+      }
+      const { brotliCompressSync, constants } = await import('node:zlib');
+      mkdirSync(vendorLangDir, { recursive: true });
+      const target = join(vendorLangDir, `tree-sitter-${name}.wasm.br`);
+      writeFileSync(target, brotliCompressSync(extracted.stdout, { params: { [constants.BROTLI_PARAM_QUALITY]: 11 } }));
+      const map = readMap();
+      for (const ext of exts) {
+        map[ext] = name;
+      }
+      writeFileSync(mapPath, `${JSON.stringify(map, null, 2)}\n`);
+      console.log(`[reqbank] lang add ${name} → ${target}`);
+      console.log(`[reqbank] 后缀映射：${exts.map((e) => `${e} → ${name}`).join(', ')}（lang-map.json）`);
+      console.log('[reqbank] vendor-lang/ 属于真源侧资产，建议随仓库提交以共享给协作者');
+    } catch (error) {
+      console.error(`[reqbank] lang add failed: ${error.message}`);
+      process.exit(1);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+    return;
+  }
+
+  if (action === 'remove') {
+    if (!name) {
+      console.error('[reqbank] usage: reqbank lang remove <grammar-name>');
+      process.exit(2);
+    }
+    const map = readMap();
+    let removed = 0;
+    for (const ext of Object.keys(map)) {
+      if (map[ext] === name) {
+        delete map[ext];
+        removed += 1;
+      }
+    }
+    rmSync(join(vendorLangDir, `tree-sitter-${name}.wasm.br`), { force: true });
+    if (Object.keys(map).length) {
+      writeFileSync(mapPath, `${JSON.stringify(map, null, 2)}\n`);
+    } else {
+      rmSync(mapPath, { force: true });
+    }
+    console.log(`[reqbank] lang remove ${name}（清除映射 ${removed} 项 + 语法包文件）`);
+    return;
+  }
+
+  console.error('usage: reqbank lang <list|add|remove> [name] [--ext .xx]');
+  process.exit(2);
 };
 
 const main = async () => {
@@ -509,6 +635,8 @@ const main = async () => {
     case 'check':
     case 'doctor':
       return cmdCheck(rest);
+    case 'lang':
+      return cmdLang(rest);
     case 'update': {
       const options = parseArgs(rest);
       if (!options.positional.includes('--git') && !process.env.HARNESS_KIT_URL) {
@@ -697,7 +825,7 @@ const main = async () => {
       return;
     }
     default:
-      console.error('usage: reqbank <init|scope|check|doctor|verify|gate|status|confirm|report|impact|smoke|update|version|session-init|recall|pre-critic|critic|finalize> [args]');
+      console.error('usage: reqbank <init|scope|check|doctor|verify|gate|status|confirm|report|impact|smoke|update|lang|version|session-init|recall|pre-critic|critic|finalize> [args]');
       process.exit(command ? 2 : 0);
   }
 };

@@ -94,7 +94,7 @@ const main = async () => {
           continue;
         }
         // 与 PostToolUse critic 同源：断言层（确定性）+ n-gram 分类器，同一改动两套入口一套结论
-        const assertionHits = runAssertionReview({ diff, filePaths: [file], recalledReqs: recalled, matchPathPattern });
+        const assertionHits = await runAssertionReview({ diff, filePaths: [file], recalledReqs: recalled, matchPathPattern });
         const verdict = runCriticReview({ diff, recalledReqs: recalled });
         const conflictRecords = [...verdict.conflicts];
         for (const hit of assertionHits) {

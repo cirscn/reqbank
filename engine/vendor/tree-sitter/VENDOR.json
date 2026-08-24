@@ -1,0 +1,24 @@
+{
+  "runtime": {
+    "name": "web-tree-sitter",
+    "version": "0.22.6",
+    "license": "MIT",
+    "files": {
+      "tree-sitter.cjs": "ddcacb69cd26c07322c51b798a63805fd99c272177c9633a978f3886358ca070",
+      "tree-sitter.wasm": "29208e71028ab0c11dfcc941255075aad75545394467aa22d817a6356714090f"
+    }
+  },
+  "grammars": {
+    "source": "tree-sitter-wasms@0.1.13",
+    "compression": "brotli-11",
+    "languages": {
+      "javascript": "04f0e13a74a9fd8edf28169065b15b8a23334f0a7577477842e86b5418c35aa4",
+      "typescript": "f93e264d84752652e1a6d2569b7bae962d921d4fb5584cd57a0e43f419e1ce99",
+      "tsx": "13f666d213c4d1d80cbec96bed10ceabe0689d7697e66d8dd6b68713d50f8476",
+      "java": "8d4ecc759a4cd9941604f2bace7db7e77260e3252101176210db1957c95bc2d7",
+      "python": "df440bbd0dfe3297fac2df262dc2ad19746fdb4a223f706e99af428d72d74910",
+      "go": "bb8b444c8f2739220d268d7c9bd70b913fff46fddd2746574adc00224b5aed5f",
+      "rust": "c9c07b0fc4166452e9d2bf26276056a359de1aa658a316ac3a6c1578d5d64ba4"
+    }
+  }
+}
