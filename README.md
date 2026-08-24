@@ -128,6 +128,8 @@ reqbank update --git  # 或走 git 远端（HARNESS_KIT_URL 可覆盖）
 
 只替换 `.harness/engine|bin|templates`，**绝不触碰 `.agentdoc/harness/` 真源**——你的需求记忆永远在你手里。
 
+维护者发布新版本：见 [RELEASE.md](RELEASE.md)（tag 驱动，CI 自动完成）。
+
 ## Monorepo（多包仓库）
 
 两种姿势：
