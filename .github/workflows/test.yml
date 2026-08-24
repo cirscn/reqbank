@@ -21,7 +21,7 @@ jobs:
       - name: p0 回归
         shell: bash
         continue-on-error: true
-        run: node eval/p0-regression.mjs > /tmp/p0.log 2>&1; echo $? > /tmp/p0.rc; test ! -s /tmp/p0.rc || true; exit 0
+        run: node eval/p0-regression.mjs > /tmp/p0.log 2>&1; echo $? > /tmp/p0.rc; exit 0
       - name: p1 回归
         shell: bash
         continue-on-error: true
