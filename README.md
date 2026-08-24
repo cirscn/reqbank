@@ -134,6 +134,10 @@ requirements.md 可选 `## 断言` 节，行格式 `REQ-001 | no-delete|forbid-a
 - **结构化断言（JS/TS/TSX/Java/Python/Go/Rust）**：`forbid-call` 只拦 AST 确认的真实调用点——注释和字符串里的提及不误报；`no-negate` 拦截守卫标识符被取反（`!x` / `not x`）。断言层**全库扫描**（召回集 ∪ 全部带断言条款）：断言是闭集确定性规则，不受路径召回预算门控——A 模块条款的断言对 B 模块文件的违规同样生效；n-gram 语义分类仍限于召回域。实现为 vendored tree-sitter WASM（~800KB 静态资产，brotli 压缩语法包懒加载，零 npm 运行时依赖，Node 22 内置 WASM 引擎全平台）。字符串预筛不命中的回合零解析成本；无语法包语言退回字符串层照拦。`reqbank check --vendor` 校验资产完整性（sha256 对照 `engine/vendor/tree-sitter/VENDOR.json`）。
 - **语言扩展**：`reqbank lang add kotlin --ext .kt` 按需下载语法包到 `.agentdoc/harness/vendor-lang/`（随仓库共享给协作者）；`lang list` / `lang remove` 管理。YAML/JSON/HTML/CSS 等声明式配置明确不做 AST——字符串断言层即正确工具。
 
+### 升级提醒与版本说明
+
+SessionStart 自动检查 npm 新版本：24h 本地缓存（每会话最多一次网络请求），离线/CI 静默失败不影响会话，`HARNESS_SKIP_UPDATE_CHECK=1` 彻底关闭。有新版时注入一行提醒，`reqbank version` 同步显示已装与 latest。`reqbank changelog [版本]` 查看版本变更（不接参数显示最新，`--all` 全量）；`reqbank update` 升级完成后打印新版变更摘要。CHANGELOG.md 随包分发到 `.harness/CHANGELOG.md`。
+
 ### 条款生命周期与置信度（索引第 5 列）
 
 索引行可选第 5 列：`REQ-001 | tags | TC-001 | active:confirmed | 标题`——状态 `active|draft|superseded>REQ-x`、置信度 `confirmed|inferred|gap`、执法档 `:warn`（conflict 降级不硬拦）。非 active 条目不参与召回/执法；`reqbank confirm` 人审升级；`reqbank status` 从日志派生验证三态。误报可内联抑制：diff 中 `reqbank-ignore: <scope:id>`（必须可见可数）。

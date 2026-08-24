@@ -102,6 +102,11 @@ B1-B3、B8 是纯 bug fix；B5-B7 属语义修复，纳入 P1/P2 的设计一并
 - 验收：Java 真实文件 forbid-call 拦截 + 注释提及不误报（JAVA-CALL/JAVA-MENTION）✅；TS 文件 `!x` 翻转拦截（TS-NEGATE）✅；语法包懒加载内存验证（LAZY）✅；六套回归（P0-P5 + 对抗）104 用例 + 108 全量零回归 ✅。
 - **真实项目验收（2026-08-25，eval/acceptance-p5.mjs，13/13）**：bpms/frontend 真实 TS 代码库四层拦截同一取反翻转（pre-critic deny → critic critical → gate exit 1 → Stop block）；跨模块 forbid-call（hooks 文件违规调用被 request 条款归因拦截）；注释提及/合法 antdMessage.error 通道零误报；agent.ts 真实条件翻转 L1 无断言拦截；backend 真实 Java 文件 20/20 整文件解析干净 + 真实方法名 forbid-call；干净工作区 gate 2.2s。验收发现并当场修复两处引擎缺陷：成员式 pattern（message.error）AST 确认尾段对齐、断言层改为全库扫描（此前跨模块违规可绕过召回门控）——回归 104 + 108 用例全绿后随 0.10.1 发布。
 
+### P6 版本体验：升级提醒 + 版本说明（✅ 2026-08-25 实施）
+- [x] **升级提醒**（S）：`engine/lib/update-check.mjs`——registry dist-tags 检查 + 24h 本地缓存（`.agentdoc/harness/update-check.json`，已入 gitignore 运行产物清单）+ fetchImpl/now 可注入。SessionStart 注入提醒行、`reqbank version` 显示已装与 latest。fail-open：离线/CI/坏缓存一律静默 unknown；`HARNESS_SKIP_UPDATE_CHECK=1` 关闭。
+- [x] **版本说明**（S）：`CHANGELOG.md` 随包分发（npm files + init/update 幂等落 `.harness/CHANGELOG.md`）；`reqbank changelog [版本|--all]`；`reqbank update` 完成后打印新版摘要。
+- 验收：`eval/update-changelog.mjs` 19 用例（semver/缓存命中零网络/过期重查/离线不写缓存/env 关闭/坏缓存容错/session-init 注入与静默/changelog CLI 边界/分发断言），接入 npm test 与 CI。
+
 ### 机会项（顺手做，不占里程碑）
 - Stop 完成声明审查（cc-enforcer 九层思路：对冲词/盘上 mtime 对照/声称改了 X 但文件未动）——与终态裁决天然互补，正交的一层。
 - `reqbank why <file>`：code→REQ 反查 + 验证状态列（D6，S）；与 critic 共享路径匹配代码保证"查询=执法"。

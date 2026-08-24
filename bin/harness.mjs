@@ -144,6 +144,19 @@ const cmdInit = async (options) => {
   }
   const harnessDir = join(root, '.agentdoc', 'harness');
   const fresh = !existsSync(harnessDir);
+  // P6 版本说明随引擎分发：init 幂等刷新 .harness/CHANGELOG.md 与 VERSION
+  const engineInstallDir = join(root, '.harness');
+  mkdirSync(engineInstallDir, { recursive: true });
+  if (existsSync(join(KIT_ROOT, 'CHANGELOG.md'))) {
+    copyFileSync(join(KIT_ROOT, 'CHANGELOG.md'), join(engineInstallDir, 'CHANGELOG.md'));
+  }
+  if (!existsSync(join(engineInstallDir, 'VERSION'))) {
+    try {
+      writeFileSync(join(engineInstallDir, 'VERSION'), `${readFileSync(join(KIT_ROOT, 'VERSION'), 'utf8').trim()}\n`);
+    } catch {
+      // kit 无 VERSION（源仓库布局差异）：留空，update 流程会补
+    }
+  }
 
   if (fresh) {
     mkdirSync(join(root, '.agentdoc'), { recursive: true });
@@ -267,7 +280,8 @@ const cmdInit = async (options) => {
 
   const gitignoreEntries = [
     '.agentdoc/harness/hook-payloads/',
-    '.agentdoc/harness/learning-log.jsonl'
+    '.agentdoc/harness/learning-log.jsonl',
+    '.agentdoc/harness/update-check.json'
   ];
   if (agents.includes('claude')) {
     // Claude Code 个人权限白名单（点"始终允许"自动累积），按约定不进库，避免搭车提交与信息泄露
@@ -495,6 +509,54 @@ const cmdCheck = async (rest = []) => {
   console.log('[reqbank] check passed');
 };
 
+// P6 版本说明：CHANGELOG.md 随包分发（.harness/CHANGELOG.md，缺失回退 kit 根）。
+const changelogPathAt = (root) => {
+  const installed = join(root ?? '', '.harness', 'CHANGELOG.md');
+  if (existsSync(installed)) return installed;
+  const kit = join(KIT_ROOT, 'CHANGELOG.md');
+  return existsSync(kit) ? kit : null;
+};
+
+const renderChangelogSection = (text, version) => {
+  const lines = text.split('\n');
+  const sections = [];
+  let current = null;
+  for (const line of lines) {
+    if (line.startsWith('## ')) {
+      if (current) sections.push(current);
+      current = { version: line.slice(3).trim(), lines: [line] };
+    } else if (current) {
+      current.lines.push(line);
+    }
+  }
+  if (current) sections.push(current);
+  if (!sections.length) return null;
+  if (!version) return sections[0];
+  return sections.find((section) => section.version.startsWith(version)) ?? null;
+};
+
+const cmdChangelog = async (rest = []) => {
+  const root = projectRoot() ?? gitRoot();
+  const path = changelogPathAt(root);
+  if (!path) {
+    console.error('[reqbank] CHANGELOG.md 不存在（kit 安装不完整或版本 < 0.11.0）');
+    process.exit(2);
+  }
+  const showAll = rest.includes('--all');
+  const versionArg = rest.find((arg) => !arg.startsWith('-'));
+  const text = readFileSync(path, 'utf8');
+  if (showAll) {
+    console.log(text.trim());
+    return;
+  }
+  const section = renderChangelogSection(text, versionArg);
+  if (!section) {
+    console.error(`[reqbank] 版本 ${versionArg ?? '(latest)'} 无对应记录（reqbank changelog --all 查看全部）`);
+    process.exit(1);
+  }
+  console.log(section.lines.join('\n').trim());
+};
+
 // P5 reqbank lang：语法感知语言扩展（结构化断言 forbid-call/no-negate 的语法包管理）。
 //   lang list                     内置语言 + 项目扩展
 //   lang add <name> --ext .xx     从 npm 下载语法包 → brotli → .agentdoc/harness/vendor-lang/（随仓库共享）
@@ -662,8 +724,17 @@ const main = async () => {
           cpSync(join(pkgDir, 'engine'), join(harnessDir0, 'engine'), { recursive: true });
           cpSync(join(pkgDir, 'bin', 'harness.mjs'), join(harnessDir0, 'bin', 'harness.mjs'));
           cpSync(join(pkgDir, 'templates'), join(harnessDir0, 'templates'), { recursive: true });
+          if (existsSync(join(pkgDir, 'CHANGELOG.md'))) {
+            copyFileSync(join(pkgDir, 'CHANGELOG.md'), join(harnessDir0, 'CHANGELOG.md'));
+          }
           writeFileSync(join(harnessDir0, 'VERSION'), `${latest}\n`);
           console.log(`[reqbank] updated ${before0} -> ${latest}（.agentdoc/harness 真源未动）`);
+          const freshChangelog = existsSync(join(harnessDir0, 'CHANGELOG.md'))
+            ? renderChangelogSection(readFileSync(join(harnessDir0, 'CHANGELOG.md'), 'utf8'), null)
+            : null;
+          if (freshChangelog) {
+            console.log(`[reqbank] 本次变更：\n${freshChangelog.lines.join('\n').trim()}`);
+          }
           console.log('[reqbank] 如需补齐 .gitignore 运行产物忽略与适配器渲染，可重跑 harness init（幂等）');
         } catch (error) {
           console.error(`[reqbank] npm update failed: ${error.message}；可改用 --git`);
@@ -700,6 +771,9 @@ const main = async () => {
         }
         const version = readFileSync(join(kit, 'VERSION'), 'utf8').trim();
         writeFileSync(join(harnessDir, 'VERSION'), `${version}\n`);
+        if (existsSync(join(kit, 'CHANGELOG.md'))) {
+          copyFileSync(join(kit, 'CHANGELOG.md'), join(harnessDir, 'CHANGELOG.md'));
+        }
         console.log(`[reqbank] updated ${before} -> ${version}（.agentdoc/harness 真源未动）`);
         console.log('[reqbank] 如需补齐 .gitignore 运行产物忽略与适配器渲染，可重跑 harness init（幂等）');
       } finally {
@@ -734,9 +808,26 @@ const main = async () => {
     case 'version': {
       const root = projectRoot() ?? process.cwd();
       const v = join(root, '.harness', 'VERSION');
-      console.log(existsSync(v) ? readFileSync(v, 'utf8').trim() : '(not installed)');
+      const installed = existsSync(v) ? readFileSync(v, 'utf8').trim() : null;
+      if (!installed) {
+        console.log('(not installed)');
+        return;
+      }
+      // P6：缓存优先显示 latest；网络失败静默回退只显示已装版本
+      const { checkForUpdate } = await import(join(ENGINE_DIR, 'lib', 'update-check.mjs'));
+      const check = await checkForUpdate({
+        currentVersion: installed,
+        cachePath: join(root, '.agentdoc', 'harness', 'update-check.json')
+      });
+      if (check.status === 'available') {
+        console.log(`${installed}（latest ${check.latest}，运行 reqbank update 升级）`);
+      } else {
+        console.log(installed + (check.latest ? `（latest ${check.latest}）` : ''));
+      }
       return;
     }
+    case 'changelog':
+      return cmdChangelog(rest);
     case 'smoke': {
       const smokePath = join(KIT_ROOT, 'scripts', 'smoke.mjs');
       const result = spawnSync(process.execPath, [smokePath], { stdio: 'inherit' });
@@ -825,7 +916,7 @@ const main = async () => {
       return;
     }
     default:
-      console.error('usage: reqbank <init|scope|check|doctor|verify|gate|status|confirm|report|impact|smoke|update|lang|version|session-init|recall|pre-critic|critic|finalize> [args]');
+      console.error('usage: reqbank <init|scope|check|doctor|verify|gate|status|confirm|report|impact|smoke|update|lang|changelog|version|session-init|recall|pre-critic|critic|finalize> [args]');
       process.exit(command ? 2 : 0);
   }
 };

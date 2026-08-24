@@ -4,7 +4,16 @@
 // learning loop is wired.
 
 import { listModulesWithMeta, listPendingModules, loadAllRequirements } from './lib/harness-store.mjs';
+import { checkForUpdate } from './lib/update-check.mjs';
 import { appendLog, appendPayloadSample, parseHookPayload, readHookStdin } from './lib/learning-log.mjs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { getProjectRoot } from './lib/repo-paths.mjs';
+
+const installedVersionAt = (root) => {
+  const versionPath = root ? join(root, '.harness', 'VERSION') : null;
+  return versionPath && existsSync(versionPath) ? readFileSync(versionPath, 'utf8').trim() : null;
+};
 
 const main = async () => {
   const raw = await readHookStdin();
@@ -31,6 +40,21 @@ const main = async () => {
     'Recall is ID-first and only injected on hits; Stop hard-blocks deterministic harness failures only.'
   ];
 
+  // P6 升级提醒：fail-open——任何失败（离线/CI/无安装态）都不影响会话启动
+  let updateCheck = { status: 'unknown', current: null, latest: null, checkedVia: 'skipped' };
+  try {
+    const root = getProjectRoot();
+    updateCheck = await checkForUpdate({
+      currentVersion: installedVersionAt(root),
+      cachePath: root ? join(root, '.agentdoc', 'harness', 'update-check.json') : null
+    });
+    if (updateCheck.status === 'available') {
+      lines.push(`[reqbank] 新版本可用：${updateCheck.current} → ${updateCheck.latest}。运行 reqbank update 升级，reqbank changelog 查看变更。`);
+    }
+  } catch {
+    updateCheck = { status: 'unknown', current: null, latest: null, checkedVia: 'error' };
+  }
+
   const output = {
     hookSpecificOutput: {
       hookEventName: 'SessionStart',
@@ -48,6 +72,7 @@ const main = async () => {
     built_modules: builtModules.map((module) => module.name),
     global_req_count: globalReqs.length,
     pending_module_count: pendingModules.length,
+    update_check: { status: updateCheck.status, current: updateCheck.current, latest: updateCheck.latest, via: updateCheck.checkedVia },
     context_chars: lines.join('\n').length
   });
 };

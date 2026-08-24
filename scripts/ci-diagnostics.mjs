@@ -3,7 +3,7 @@
 // （annotations 经公开 API 可读——无日志权限也能定位失败面，尤其 Windows 调试期）。
 import { readFileSync } from 'node:fs';
 
-const suites = ['p0', 'p1', 'p2', 'p3p4', 'p5', 'adv', 'smoke'];
+const suites = ['p0', 'p1', 'p2', 'p3p4', 'p5', 'p6', 'adv', 'smoke'];
 let failed = 0;
 for (const suite of suites) {
   let rc = '0';

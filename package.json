@@ -1,6 +1,6 @@
 {
   "name": "@cirscn/reqbank",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "AI 编码代理的需求记忆脚手架：REQ/TC 召回注入 + 确定性冲突拦截，纯 Markdown 真源，agent 无关",
   "type": "module",
   "bin": {
@@ -12,6 +12,7 @@
     "templates/",
     "scripts/",
     "install.sh",
+    "CHANGELOG.md",
     "VERSION",
     "README.md",
     "llms.txt"
@@ -36,7 +37,7 @@
     "url": "git+https://github.com/cirscn/reqbank.git"
   },
   "scripts": {
-    "test": "node eval/p0-regression.mjs && node eval/p1-regression.mjs && node eval/p2-regression.mjs && node eval/p3p4-regression.mjs && node eval/p5-ast.mjs && node eval/adversarial.mjs && node scripts/smoke.mjs",
+    "test": "node eval/p0-regression.mjs && node eval/p1-regression.mjs && node eval/p2-regression.mjs && node eval/p3p4-regression.mjs && node eval/p5-ast.mjs && node eval/update-changelog.mjs && node eval/adversarial.mjs && node scripts/smoke.mjs",
     "test:full": "node eval/coverage-100.mjs"
   }
 }
