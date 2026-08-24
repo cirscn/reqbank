@@ -36,5 +36,10 @@ jobs:
       - name: Smoke
         run: node scripts/smoke.mjs
 
+      # setup-node 会写入含 ${NODE_AUTH_TOKEN} 占位符的 .npmrc；
+      # 未配置该 Secret 时占位符原样发出会导致 404——发布前重置为纯净配置，走 OIDC。
+      - name: Reset .npmrc for OIDC
+        run: echo "registry=https://registry.npmjs.org/" > ~/.npmrc
+
       - name: Publish to npm（零凭据，带溯源签名）
         run: npm publish --access public --provenance
