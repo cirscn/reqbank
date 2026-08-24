@@ -74,7 +74,7 @@ REQ-001: 制造地址真源字段是 manufacturerAddress；邮寄地址不得回
 同目录 `tests.md`：
 
 ```markdown
-## 索引
+## 内容索引
 
 TC-001 | address-mapping | REQ-001 | 地址独立性验证
 
@@ -184,9 +184,15 @@ reqbank update --git  # 或走 git 远端（HARNESS_KIT_URL 可覆盖）
 | 结构漂移 | [clay-good/OpenLore](https://github.com/clay-good/OpenLore) | spec↔文件映射漂移检测、CI 门禁 |
 | 流程 SDD | [github/spec-kit](https://github.com/github/spec-kit)、[obra/superpowers](https://github.com/obra/superpowers)、[bmad-code-org/BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD) | 反面教材为主：流程仪式的边界在哪 |
 | 会话记忆 | [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)、[mem0ai/mem0](https://github.com/mem0ai/mem0) | 过程记忆与需求记忆的边界 |
+| 契约执法 | [mesa-dot-dev/saguaro](https://github.com/mesa-dot-dev/saguaro) | 机制同构镜像（规则 md + frontmatter、PreToolUse 注入、Stop 审 diff）；盯其向业务契约语义的演化 |
+| 可验证契约 | [ZhangHanDong/agent-spec](https://github.com/ZhangHanDong/agent-spec) | trace 三态追溯（honored/violated/unproven）、全确定性 gate、EARS/ISO-29148 lint |
+| 条款验证 | [av/facts](https://github.com/av/facts) | 条款内联可执行验证命令 + 生命周期标签的极简形态 |
+| 政策执法 | [eqtylab/cupcake](https://github.com/eqtylab/cupcake) | Rego→Wasm 五态判决（Allow/Modify/Block/Warn/Require-Review）、多 agent 适配的工程化 |
+| 钩子纪律 | [pdewost/coding-constitution](https://github.com/pdewost/coding-constitution) | ANCHOR/GUARDRAIL/COMPILE-GATE/CLOSEOUT-GATE 与本引擎钩子布阵的对照 |
+| 追溯正统 | [awslabs/duvet](https://github.com/awslabs/duvet) | 注释级 spec↔实现↔测试双向追溯、测试执行/覆盖数据关联 |
 | 综合清单 | [hesreallyhim/awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code) | Memory & Context Persistence 专区季度巡检 |
 
-巡检节奏建议：每季度扫一轮上表 release/changelog；出现"条文级执法"同类实现时优先评估吸收。
+巡检节奏建议：每季度扫一轮上表 release/changelog；出现"条文级执法"同类实现时优先评估吸收。完整竞品扫描（2026-08 四路检索，含 saguaro / moai-adk / FredAntB-SDD 等直接竞品与战略启示）见 [docs/competitive-research-2026-08.md](docs/competitive-research-2026-08.md)。
 
 ## License
 

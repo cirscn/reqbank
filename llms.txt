@@ -48,7 +48,7 @@ tail -1 .agentdoc/harness/learning-log.jsonl   # 有新事件行 = 钩子已在�
 
 - `index.md` 命中路径：`- \`path/or/glob\` [strong|weak] | tag1,tag2`
 - `requirements.md`：`## 索引` 下 `REQ-001 | tag | TC-001 | 标题`；`## 需求澄清` 下 `REQ-001: 正文`
-- `tests.md`：`## 索引` 下 `TC-001 | tag | REQ-001 | 标题`；`## 测试用例` 下 `TC-001: G=前提 | W=改动 | E=预期 | V=\`pnpm vitest run ...\``
+- `tests.md`：`## 内容索引` 下 `TC-001 | tag | REQ-001 | 标题`（兼容旧段名 `## 索引`）；`## 测试用例` 下 `TC-001: G=前提 | W=改动 | E=预期 | V=\`pnpm vitest run ...\``
 
 三条铁律：① 条款要写"不得做什么"，不只写理想路径；② 每条 REQ 挂可执行 TC（V 字段写反引号包裹的命令即可，任意语言生态如 pnpm/pytest/go test 均可执行；agent 不得在 V 字段写破坏性命令——rm 递归强删、sudo、下载管道进 shell 等，verify 侧有确定性拒绝兜底）；③ REQ 标签必须出现在某条命中路径的标签里，否则 `check` 报 tag-coverage。
 

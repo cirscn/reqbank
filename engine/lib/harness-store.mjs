@@ -10,6 +10,18 @@ const HARNESS_ROOT = repoPath('.agentdoc', 'harness');
 
 const readText = (path) => readFileSync(path, 'utf8');
 
+// 解析期警告/错误收集：钩子路径静默忽略（不打扰会话），`reqbank check` 消费后呈现。
+// kind: 'error' 使 check 失败；'warning' 仅提示（如未识别段名——可能是文档漂移）。
+const parseWarnings = [];
+export const consumeParseWarnings = () => {
+  const warnings = [...parseWarnings];
+  parseWarnings.length = 0;
+  return warnings;
+};
+
+const REQ_SECTIONS = new Set(['索引', '需求澄清', '注意事项']);
+const TEST_SECTIONS = new Set(['索引', '内容索引', '测试用例']);
+
 const parseRequirements = (file, scope) => {
   if (!existsSync(file)) {
     return [];
@@ -22,11 +34,17 @@ const parseRequirements = (file, scope) => {
   for (const line of readText(file).split('\n')) {
     if (line.startsWith('## ')) {
       currentSection = line.replace(/^##\s+/, '').trim();
+      if (currentSection && !REQ_SECTIONS.has(currentSection)) {
+        parseWarnings.push({ kind: 'warning', code: 'unknown-section', message: `${file} 出现未识别段名「## ${currentSection}」（已知：${[...REQ_SECTIONS].join('、')}）——该段下条目不会被解析` });
+      }
       continue;
     }
     if (currentSection === '索引') {
-      const match = line.match(/^(G?REQ-\d{3})\s\|\s([^|]+)\s\|\s([^|]+)\s\|\s(.+)/);
+      const match = line.match(/^(G?REQ-\d{3,})\s\|\s([^|]+)\s\|\s([^|]+)\s\|\s(.+)/);
       if (match) {
+        if (indexMap.has(match[1])) {
+          parseWarnings.push({ kind: 'error', code: 'duplicate-id', message: `${scope}:${match[1]} 索引行重复定义（后写覆盖先写，先写条目丢失）——${file}` });
+        }
         indexMap.set(match[1], {
           id: match[1],
           tags: match[2].split(',').map((tag) => tag.trim()).filter(Boolean),
@@ -36,7 +54,7 @@ const parseRequirements = (file, scope) => {
       }
     }
     if (currentSection === '需求澄清') {
-      const match = line.match(/^(G?REQ-\d{3}):\s+(.+)/);
+      const match = line.match(/^(G?REQ-\d{3,}):\s+(.+)/);
       if (match) {
         clarifications.set(match[1], match[2].trim());
       }
@@ -62,7 +80,7 @@ const splitCompactExpect = (text) => {
 };
 
 const parseCompactTestLine = (line) => {
-  const match = line.match(/^(G?TC-\d{3}):\s+G=(.+?)\s+\|\s+W=(.+?)\s+\|\s+E=(.+?)\s+\|\s+V=(.+)$/);
+  const match = line.match(/^(G?TC-\d{3,}):\s+G=(.+?)\s+\|\s+W=(.+?)\s+\|\s+E=(.+?)\s+\|\s+V=(.+)$/);
   if (!match) {
     return null;
   }
@@ -89,11 +107,19 @@ const parseTests = (file, scope) => {
   for (const line of readText(file).split('\n')) {
     if (line.startsWith('## ')) {
       currentSection = line.replace(/^##\s+/, '').trim();
+      if (currentSection && !TEST_SECTIONS.has(currentSection)) {
+        parseWarnings.push({ kind: 'warning', code: 'unknown-section', message: `${file} 出现未识别段名「## ${currentSection}」（已知：${[...TEST_SECTIONS].join('、')}）——该段下条目不会被解析` });
+      }
       continue;
     }
-    if (currentSection === '内容索引') {
-      const match = line.match(/^(G?TC-\d{3})\s\|\s([^|]+)\s\|\s([^|]+)\s\|\s(.+)/);
+    // 「## 索引」是 requirements.md 的段名；tests.md 曾长期用同名段（README/llms.txt 旧示例），
+    // 为避免照旧文档写的 TC 静默解析为零条，这里双段名兼容。
+    if (currentSection === '内容索引' || currentSection === '索引') {
+      const match = line.match(/^(G?TC-\d{3,})\s\|\s([^|]+)\s\|\s([^|]+)\s\|\s(.+)/);
       if (match) {
+        if (indexMap.has(match[1])) {
+          parseWarnings.push({ kind: 'error', code: 'duplicate-id', message: `${scope}:${match[1]} 内容索引行重复定义（后写覆盖先写，先写条目丢失）——${file}` });
+        }
         indexMap.set(match[1], {
           id: match[1],
           tags: match[2].split(',').map((tag) => tag.trim()).filter(Boolean),

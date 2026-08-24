@@ -18,6 +18,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getProjectRoot, repoPath } from './lib/repo-paths.mjs';
 import { loadAllTests } from './lib/harness-store.mjs';
+import { appendLog } from './lib/learning-log.mjs';
 
 const LOG_PATH = () => repoPath('.agentdoc', 'harness', 'learning-log.jsonl');
 
@@ -55,7 +56,7 @@ const collectTcIds = (events, turnId) => {
     if (turnId && event.turn_id !== turnId) continue;
     for (const key of ['recall_hits', 'recall_ids', 'matched_ids', 'weak_ids']) {
       for (const id of event[key] ?? []) {
-        if (/TC-\d{3}$/.test(id)) {
+        if (/TC-\d{3,}$/.test(id)) {
           ids.add(id);
         }
       }
@@ -144,12 +145,14 @@ const main = async () => {
         const unsafeLabel = findUnsafe(command);
         if (unsafeLabel) {
           failures += 1;
+          appendLog({ event: 'verify', turn_id: turnId, tc: fullId, command, exit: null, ok: false, rejected: `unsafe:${unsafeLabel}` });
           console.error(`  ⛔ ${fullId}: 命中危险模式（${unsafeLabel}），拒绝执行：${command}`);
           console.error('     确认安全后设 HARNESS_VERIFY_ALLOW_UNSAFE=1 重跑');
           continue;
         }
       }
       process.stdout.write(`  ▶ ${fullId}: ${command}\n`);
+      const startedAt = Date.now();
       const result = spawnSync(command, {
         cwd: root,
         encoding: 'utf8',
@@ -158,6 +161,7 @@ const main = async () => {
         timeout: 300000
       });
       const ok = result.status === 0;
+      appendLog({ event: 'verify', turn_id: turnId, tc: fullId, command, exit: result.status, ok, duration_ms: Date.now() - startedAt });
       if (!ok) {
         failures += 1;
         process.stdout.write(`    ✗ exit ${result.status}\n${(result.stderr || result.stdout || '').slice(-800)}\n`);

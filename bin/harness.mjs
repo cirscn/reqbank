@@ -328,6 +328,7 @@ const cmdCheck = async (rest = []) => {
       const store = await import(join(ENGINE_DIR, 'lib', 'harness-store.mjs'));
       const lint = await import(join(ENGINE_DIR, 'lib', 'lint.mjs'));
       const requirements = store.loadAllRequirements();
+      store.loadAllTests();
       const modulesWithMeta = store.listModulesWithMeta();
       const strict = rest.includes('--strict');
       let warnings = 0;
@@ -341,6 +342,14 @@ const cmdCheck = async (rest = []) => {
       }
       if (warnings > 0 && strict) {
         problems.push(`${warnings} 对疑似矛盾条款（--strict 模式下视为失败）`);
+      }
+      // 解析期完整性：重复 ID（error）/ 未识别段名（warning，可能是文档漂移）
+      for (const parseWarning of store.consumeParseWarnings()) {
+        if (parseWarning.kind === 'error') {
+          problems.push(`${parseWarning.code}: ${parseWarning.message}`);
+        } else {
+          console.warn(`[reqbank] ⚠ ${parseWarning.code}: ${parseWarning.message}`);
+        }
       }
     } catch (error) {
       problems.push(`lint 执行失败（fail-open 忽略内容检查）: ${error.message}`);
