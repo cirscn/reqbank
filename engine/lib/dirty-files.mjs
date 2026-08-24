@@ -79,6 +79,17 @@ export const getDirtyBusinessFileRecords = () => (
   getDirtyFileRecords().filter((record) => isBusinessFile(record.file))
 );
 
+// 盘上终态 diff（unstaged + staged）：Stop 终态裁决用——不信过程信终态，对实际落盘的改动重算冲突。
+export const getBusinessFileUnifiedDiff = (file) => {
+  try {
+    const unstaged = git(['diff', '--', file]);
+    const staged = git(['diff', '--cached', '--', file]);
+    return `${unstaged}\n${staged}`;
+  } catch {
+    return '';
+  }
+};
+
 export const getDirtyBusinessFileChangesSinceBaseline = (baselineRecords) => {
   const currentRecords = getDirtyBusinessFileRecords();
   if (!Array.isArray(baselineRecords)) {

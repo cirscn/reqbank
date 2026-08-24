@@ -8,15 +8,85 @@ const formatRecord = (record) => {
   return `${record.scope}:${record.id}${tags} - ${record.title || 'untitled'} (${record.file})`;
 };
 
-export const formatRecallContext = (records) => {
+// P1 注入预算协议：对齐 Claude Code hook 输出上限的公开常量（测试可断言）。
+export const RECALL_OUTPUT_CAP = 10000;
+
+// P1 分层注入 + 预算协议：
+//   L0 禁止类正文直注（obsidian-mind 实证：正向「去查文档」指示常被忽略，禁止类指令才可靠传播）；
+//   L1 ID-first 索引（维持轻量）；首行自定位 header——被截断也指明去哪取全文；
+//   超预算按整条省略（半条正文读起来像完整条款，比整条省略更危险），L0 最后才让步；
+//   末行 meter 报告真实注入量与被省略条目——静默丢失比膨胀更糟。
+export const formatRecallContext = (records, { cap = RECALL_OUTPUT_CAP, prohibitLimit = 3 } = {}) => {
   if (!records.length) {
     return '';
   }
-  const lines = ['Harness Recall IDs:'];
+  const header = '<!-- reqbank recall: 条款注入；若下方不完整，先运行 reqbank scope "<任务>" 获取全文 -->';
+  const prohibitions = [];
+  const others = [];
   for (const record of records) {
-    lines.push(`- ${formatRecord(record)}`);
+    if (prohibitions.length < prohibitLimit && hasNegationSignal(recordText(record))) {
+      prohibitions.push(record);
+    } else {
+      others.push(record);
+    }
   }
-  return lines.join('\n');
+  const entries = [
+    ...prohibitions.map((record) => ({
+      kind: 'l0',
+      id: `${record.scope}:${record.id}`,
+      line: `- ${record.scope}:${record.id}: ${record.clarification || record.title || ''}`
+    })),
+    ...others.map((record) => ({
+      kind: 'l1',
+      id: `${record.scope}:${record.id}`,
+      line: `- ${formatRecord(record)}`
+    }))
+  ];
+  const build = (list) => {
+    const lines = [header];
+    const l0 = list.filter((entry) => entry.kind === 'l0');
+    const l1 = list.filter((entry) => entry.kind === 'l1');
+    if (l0.length) {
+      lines.push('', '禁止类条款（正文直注，最高优先遵守）：', ...l0.map((entry) => entry.line));
+    }
+    if (l1.length) {
+      lines.push('', '其余命中条款（ID 索引，动手前先读 clarification）：', ...l1.map((entry) => entry.line));
+    }
+    return lines.join('\n');
+  };
+  const meterReserve = 200;
+  const kept = [...entries];
+  const droppedIds = [];
+  const overBudget = (list) => build(list).length + meterReserve > cap;
+  while (overBudget(kept) && kept.length) {
+    // 先整条丢 L1 尾部；L0（禁止类正文）受保护，最后才让步
+    let victimIndex = -1;
+    for (let index = kept.length - 1; index >= 0; index -= 1) {
+      if (kept[index].kind === 'l1') {
+        victimIndex = index;
+        break;
+      }
+    }
+    if (victimIndex < 0) {
+      for (let index = kept.length - 1; index >= 0; index -= 1) {
+        if (kept[index].kind === 'l0') {
+          victimIndex = index;
+          break;
+        }
+      }
+    }
+    if (victimIndex < 0) {
+      break;
+    }
+    droppedIds.unshift(kept[victimIndex].id);
+    kept.splice(victimIndex, 1);
+  }
+  const body = build(kept);
+  const droppedText = droppedIds.length
+    ? `，整条省略：${droppedIds.slice(0, 10).join(', ')}${droppedIds.length > 10 ? ` 等 ${droppedIds.length} 条` : ''}`
+    : '';
+  const meter = `<!-- reqbank recall meter: 注入 ${kept.length}/${records.length} 条，${body.length} chars，预算 ${cap}${droppedText} -->`;
+  return `${body}\n${meter}`;
 };
 
 export const formatCriticVerdict = (verdict) => {
@@ -133,6 +203,9 @@ const hasNegationSignal = (value) => {
   }
   return LATIN_NEGATION_PATTERN.test(text);
 };
+
+// 条款是否带禁止语义（供 lint 的断言覆盖率检查：有禁止语义却无断言 → compile-weak 警告）
+export const hasProhibitionSignal = (record) => hasNegationSignal(recordText(record));
 
 const countHits = (tokens, text) => tokens.filter((token) => text.includes(token)).length;
 

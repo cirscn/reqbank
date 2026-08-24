@@ -2,9 +2,13 @@
 // Stop hook: aggregate this turn's events and hard-block only deterministic
 // harness failures. Weak semantic critic signals stay in the audit log.
 
-import { getDirtyBusinessFileChangesSinceBaseline } from './lib/dirty-files.mjs';
-import { loadAllRequirements } from './lib/harness-store.mjs';
-import { formatFinalizeFeedback } from './lib/critic-prompt.mjs';
+import { spawnSync } from 'node:child_process';
+import { getBusinessFileUnifiedDiff, getDirtyBusinessFileChangesSinceBaseline } from './lib/dirty-files.mjs';
+import { extractKeywords, matchPathPattern, loadAllRequirements, loadAllTests, recallByPaths } from './lib/harness-store.mjs';
+import { formatFinalizeFeedback, runCriticReview } from './lib/critic-prompt.mjs';
+import { runAssertionReview } from './lib/assertions.mjs';
+import { extractCommands, findUnsafe } from './lib/tc-exec.mjs';
+import { getProjectRoot } from './lib/repo-paths.mjs';
 import { appendLog, appendPayloadSample, findEventsByTurn, parseHookPayload, readHookStdin } from './lib/learning-log.mjs';
 
 const DIRTY_FILE_LOG_LIMIT = 20;
@@ -45,7 +49,7 @@ const main = async () => {
   const turnId = input.turn_id ?? null;
   const turnEvents = turnId ? findEventsByTurn(turnId) : [];
 
-  const issues = [];
+  let issues = [];
 
   const criticEvents = turnEvents.filter((event) => event.event === 'PostToolUse');
   const lastCritic = criticEvents.at(-1);
@@ -66,8 +70,101 @@ const main = async () => {
     : { newFiles: [], changedExistingFiles: [] };
   const newBusinessFiles = dirtyBusinessFileChanges.newFiles;
   const changedExistingBusinessFiles = dirtyBusinessFileChanges.changedExistingFiles;
+
+  // P1 终态裁决（修 B7「先脏后净」绕过）：不信过程信终态——对本回合真正变化的业务文件
+  // 取盘上 git diff（unstaged+staged），复用确定性分类器对照条款重算。
+  // 此前只回放最后一条 critic 事件：先违规编辑、再做一次干净编辑即可让 Stop 放行，违规仍留在盘上。
+  const terminalConflictIds = [];
+  // newFiles 一并纳入：对 baseline 而言"新出现"的脏文件，可能是刚提交过的文件被改（无 critic 事件也要裁决）；
+  // 真正的新建文件 git diff 为空，自然跳过。
+  const terminalFiles = [...new Set([...changedExistingBusinessFiles, ...newBusinessFiles])];
+  if (auditDirtyFiles && terminalFiles.length) {
+    try {
+      for (const file of terminalFiles.slice(0, DIRTY_FILE_LOG_LIMIT)) {
+        const diff = getBusinessFileUnifiedDiff(file);
+        if (!diff.trim()) {
+          continue;
+        }
+        const recalled = recallByPaths([file], {
+          keywords: extractKeywords(diff),
+          recordKind: 'req-only',
+          moduleQuota: 2
+        });
+        if (!recalled.length) {
+          continue;
+        }
+        // 与 PostToolUse critic 同源：断言层（确定性）+ n-gram 分类器，同一改动两套入口一套结论
+        const assertionHits = runAssertionReview({ diff, filePaths: [file], recalledReqs: recalled, matchPathPattern });
+        const verdict = runCriticReview({ diff, recalledReqs: recalled });
+        const conflictRecords = [...verdict.conflicts];
+        for (const hit of assertionHits) {
+          if (!conflictRecords.includes(hit.record)) {
+            conflictRecords.push(hit.record);
+          }
+        }
+        for (const record of conflictRecords) {
+          terminalConflictIds.push(`${record.scope}:${record.id}`);
+        }
+      }
+    } catch (error) {
+      // 终态裁决是新增执法层：任何异常 fail-open 回落既有日志回放路径，不引入新拦截
+      process.stderr.write(`[harness-hook finalize] terminal review skipped: ${error.message}\n`);
+    }
+  }
+  for (const id of [...new Set(terminalConflictIds)]) {
+    issues.push(`终态裁决：${id} 对照盘上 diff 判定确定性冲突——守卫被删且未恢复。继续真实修复，或撤销违规改动后再结束。`);
+  }
   if (parseError) {
     issues.push(`Stop hook payload 不可解析：${parseError.message}`);
+  }
+
+  // P4 Stop 自动验证命中 TC（默认关闭，HARNESS_STOP_VERIFY=1 开启——命令执行风险边界保守设计）：
+  // 冲突条款挂的 TC 真跑一遍：TC 失败 → 追加阻断理由（引用 TC）；可执行 TC 全过 → 该冲突降级为提示
+  //（守卫消失但测试绿——交人工确认，不硬拦）。危险命令确定性拒绝并计为失败。
+  const stopTcResults = [];
+  const stopTcDowngrades = [];
+  if (process.env.HARNESS_STOP_VERIFY === '1' && issues.length) {
+    try {
+      const conflictIds = [...new Set([
+        ...terminalConflictIds,
+        ...(lastCritic?.critic_severity === 'critical' ? (lastCritic.conflict_ids ?? []) : [])
+      ])];
+      const allReqs = loadAllRequirements({ includeInactive: true });
+      const tcById = new Map(loadAllTests({ includeInactive: true }).map((t) => [`${t.scope}:${t.id}`, t]));
+      for (const id of conflictIds) {
+        const req = allReqs.find((record) => `${record.scope}:${record.id}` === id);
+        if (!req?.relatedTests?.length) continue;
+        let ran = 0;
+        let failed = 0;
+        for (const tcId of req.relatedTests) {
+          const tc = tcById.get(`${req.scope}:${tcId}`);
+          for (const command of extractCommands(tc?.verify?.[0] ?? '')) {
+            if (!process.env.HARNESS_VERIFY_ALLOW_UNSAFE) {
+              const unsafeLabel = findUnsafe(command);
+              if (unsafeLabel) {
+                ran += 1;
+                failed += 1;
+                stopTcResults.push({ id, tc: tcId, command, exit: null, rejected: `unsafe:${unsafeLabel}` });
+                continue;
+              }
+            }
+            ran += 1;
+            const result = spawnSync(command, { cwd: getProjectRoot(), encoding: 'utf8', shell: true, timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+            const pass = result.status === 0;
+            if (!pass) failed += 1;
+            stopTcResults.push({ id, tc: tcId, command, exit: result.status, pass });
+          }
+        }
+        if (ran > 0 && failed === 0) {
+          stopTcDowngrades.push(id);
+          issues = issues.filter((issue) => !issue.includes(id));
+        } else if (failed > 0) {
+          issues.push(`终态 TC 验证失败：${id} 挂载的 TC 未通过（见 learning-log stop_tc_results）——修复后再结束。`);
+        }
+      }
+    } catch (error) {
+      process.stderr.write(`[harness-hook finalize] stop tc-verify skipped: ${error.message}\n`);
+    }
   }
 
   const allReqsCount = loadAllRequirements().length;
@@ -89,6 +186,9 @@ const main = async () => {
     payload_sample: payloadSample,
     parse_error: parseError?.message ?? null,
     issues,
+    terminal_conflict_ids: [...new Set(terminalConflictIds)],
+    stop_tc_results: stopTcResults,
+    stop_tc_downgrades: stopTcDowngrades,
     decision: blocked ? 'block' : 'allow',
     would_block: issues.length > 0,
     blocked,

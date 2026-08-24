@@ -3,7 +3,7 @@
 // to detect dead rules, recall hit rates, and finalize block patterns.
 
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { repoPath } from './repo-paths.mjs';
 
@@ -118,32 +118,84 @@ export const appendPayloadSample = ({ event, raw, input, parseError }) => {
   }
 };
 
+const LOG_ROTATE_BYTES = Number(process.env.HARNESS_LOG_ROTATE_BYTES ?? '') || 5 * 1024 * 1024;
+
 export const appendLog = (record) => {
   try {
     ensureLogDir();
+    // P4 轮转：超 5MB → .jsonl.1（覆盖上一轮，只留一代）。修复「每次 Stop/critic 全量重读无限增长日志」的前置条件。
+    try {
+      const stat = statSync(LOG_PATH);
+      if (stat.size > LOG_ROTATE_BYTES) {
+        renameSync(LOG_PATH, `${LOG_PATH}.1`);
+      }
+    } catch {
+      // 文件不存在（首次写入）：无需轮转
+    }
     const line = JSON.stringify({ timestamp: new Date().toISOString(), ...record });
-    appendFileSync(LOG_PATH, `${line}\n`, 'utf8');
+    appendFileSync(LOG_PATH, `${line}\n`, 'utf-8');
   } catch (err) {
     // 不阻塞 codex；学习日志失败仅影响后续 reflect 数据完整性。
     process.stderr.write(`[harness-hook] learning-log append failed: ${err.message}\n`);
   }
 };
 
+const parseJsonlText = (text) => text
+  .split('\n')
+  .filter((line) => line.trim())
+  .map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return null;
+    }
+  })
+  .filter(Boolean);
+
+// P4 增量读：append-only 文件按字节偏移续读（进程内记忆）。轮转后 size 回退 → 自动全量重读。
+// 尾部未写完的半行留在缓冲区，下次续读补齐。
+let logReadState = { offset: 0, events: [] };
+
 export const readLogLines = () => {
   if (!existsSync(LOG_PATH)) {
+    logReadState = { offset: 0, events: [] };
     return [];
   }
-  return readFileSync(LOG_PATH, 'utf8')
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
+  const stat = statSync(LOG_PATH);
+  if (logReadState.offset > stat.size) {
+    logReadState = { offset: 0, events: [] }; // 已轮转
+  }
+  if (logReadState.offset === stat.size) {
+    return logReadState.events;
+  }
+  if (logReadState.offset === 0) {
+    const text = readFileSync(LOG_PATH, 'utf8');
+    logReadState = { offset: Buffer.byteLength(text, 'utf8'), events: parseJsonlText(text) };
+    return logReadState.events;
+  }
+  const fd = openSync(LOG_PATH, 'r');
+  try {
+    const length = stat.size - logReadState.offset;
+    const buffer = Buffer.alloc(length);
+    readSync(fd, buffer, 0, length, logReadState.offset);
+    let text = buffer.toString('utf8');
+    let consumed = length;
+    if (!text.endsWith('\n')) {
+      const lastNewline = text.lastIndexOf('\n');
+      if (lastNewline === -1) {
+        return logReadState.events; // 半行未完成，等待下次
       }
-    })
-    .filter(Boolean);
+      consumed = Buffer.byteLength(text.slice(0, lastNewline + 1), 'utf8');
+      text = text.slice(0, lastNewline + 1);
+    }
+    logReadState = {
+      offset: logReadState.offset + consumed,
+      events: [...logReadState.events, ...parseJsonlText(text)]
+    };
+    return logReadState.events;
+  } finally {
+    closeSync(fd);
+  }
 };
 
 export const findLastEvent = (eventName, predicate = () => true) => {

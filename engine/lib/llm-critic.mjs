@@ -9,11 +9,18 @@
 // - 无 key / 超时 / 解析失败一律 fail-open：返回原 verdict，不阻断流程
 // - 可注入 fetchImpl 供离线测试
 
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { repoPath } from './repo-paths.mjs';
+
 const SYSTEM_PROMPT = [
   '你是软件需求契约审计员。给定一条需求条款与一段代码补丁，',
   '只判断一件事：补丁是否实施了这条条款所禁止或警告的行为。',
   '注意：条款里的"不得/禁止/必须隐藏"等约束针对的是行为本身，与代码写法无关。',
-  '严格输出单行 JSON：{"violation": true|false, "reason": "不超过40字的理由"}，不要输出其他内容。'
+  '严格输出单行 JSON，四个字段缺一不可：',
+  '{"violation": true|false, "clause_quote": "从条款原文逐字摘录的关键句", "diff_quote": "从补丁里逐字摘录的证据行", "next_step": "不超过40字的下一步正确做法"}',
+  '引文必须是原文的连续子串，不得改写、不得翻译。'
 ].join('');
 
 export const llmCriticConfig = (env = process.env) => {
@@ -41,7 +48,7 @@ const buildUserPrompt = (record, diff) => {
   return `【需求条款】\n${clauses}\n\n【代码补丁】\n${diff}\n\n该补丁是否实施了本条款禁止/警告的行为？`;
 };
 
-const parseVerdict = (text) => {
+const parseVerdict = (text, { clauseSource = '', diffSource = '' } = {}) => {
   const match = String(text ?? '').match(/\{[\s\S]*\}/);
   if (!match) {
     return null;
@@ -51,13 +58,61 @@ const parseVerdict = (text) => {
     if (typeof parsed.violation !== 'boolean') {
       return null;
     }
-    return { violation: parsed.violation, reason: String(parsed.reason ?? '').slice(0, 120) };
+    const verdict = {
+      violation: parsed.violation,
+      reason: String(parsed.reason ?? parsed.next_step ?? '').slice(0, 120),
+      clause_quote: String(parsed.clause_quote ?? ''),
+      diff_quote: String(parsed.diff_quote ?? ''),
+      next_step: String(parsed.next_step ?? '').slice(0, 80)
+    };
+    // 子串回验（P2）：模型幻觉的引文结构上到不了决策路径——
+    // violation=true 时两条引文必须分别是条款原文/补丁原文的连续子串
+    if (verdict.violation) {
+      if (!verdict.clause_quote || !clauseSource.includes(verdict.clause_quote)) {
+        return null;
+      }
+      if (!verdict.diff_quote || !diffSource.includes(verdict.diff_quote)) {
+        return null;
+      }
+    }
+    return verdict;
   } catch {
     return null;
   }
 };
 
-const callProvider = async ({ config, userPrompt }, fetchImpl) => {
+// 磁盘缓存：同条款+同补丁的判定不重复调用（HARNESS_LLM_CACHE=off 关闭）。
+const cachePathFor = (record, diff) => {
+  try {
+    const key = createHash('sha256').update(`${record.scope}:${record.id}\n${diff}`).digest('hex');
+    return join(repoPath('.agentdoc', 'harness', 'cache'), `llm-${key.slice(0, 24)}.json`);
+  } catch {
+    return null;
+  }
+};
+const readCache = (path) => {
+  if (!path || process.env.HARNESS_LLM_CACHE === 'off') {
+    return null;
+  }
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return null;
+  }
+};
+const writeCache = (path, verdict) => {
+  if (!path || process.env.HARNESS_LLM_CACHE === 'off' || !verdict) {
+    return;
+  }
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(verdict), 'utf8');
+  } catch {
+    // 缓存失败不影响主流程
+  }
+};
+
+const callProvider = async ({ config, userPrompt, verifyCtx }, fetchImpl) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
   try {
@@ -102,7 +157,7 @@ const callProvider = async ({ config, userPrompt }, fetchImpl) => {
     const text = config.provider === 'anthropic'
       ? data?.content?.[0]?.text
       : data?.choices?.[0]?.message?.content;
-    return parseVerdict(text);
+    return parseVerdict(text, verifyCtx);
   } catch {
     return null;
   } finally {
@@ -112,13 +167,22 @@ const callProvider = async ({ config, userPrompt }, fetchImpl) => {
 
 /**
  * 对单条候选记录做 LLM 极性判定。任何失败路径返回 null（fail-open）。
+ * 命中缓存（sha256(条款id+diff)）时零网络调用。
  */
 export const llmReviewViolation = async ({ record, diff, config, fetchImpl } = {}) => {
   if (!config?.provider || !config.apiKey) {
     return null;
   }
+  const cachePath = cachePathFor(record, diff);
+  const cached = readCache(cachePath);
+  if (cached) {
+    return { ...cached, cached: true };
+  }
+  const clauseSource = buildUserPrompt(record, diff).split('【代码补丁】')[0];
   const userPrompt = buildUserPrompt(record, diff);
-  return callProvider({ config, userPrompt }, fetchImpl);
+  const verdict = await callProvider({ config, userPrompt, verifyCtx: { clauseSource, diffSource: diff } }, fetchImpl);
+  writeCache(cachePath, verdict);
+  return verdict;
 };
 
 /**
@@ -137,11 +201,24 @@ export const applyLlmCritic = async ({ verdict, recalledReqs, diff, selectCandid
   const candidates = (selectCandidates(recalledReqs, diff) ?? []).slice(0, config.maxRecords);
   const violations = [];
   const checked = [];
+  let quoteRejections = 0;
   for (const candidate of candidates) {
     const outcome = await llmReviewViolation({ record: candidate.record, diff, config, fetchImpl });
     checked.push(`${candidate.record.scope}:${candidate.record.id}`);
+    if (outcome?.cached) {
+      checked[checked.length - 1] += '(cache)';
+    }
+    if (outcome === null) {
+      quoteRejections += 1; // 含引文回验失败——幻觉判定被丢弃
+    }
     if (outcome?.violation) {
-      violations.push({ id: `${candidate.record.scope}:${candidate.record.id}`, reason: outcome.reason });
+      violations.push({
+        id: `${candidate.record.scope}:${candidate.record.id}`,
+        reason: outcome.reason,
+        clause_quote: outcome.clause_quote,
+        diff_quote: outcome.diff_quote,
+        next_step: outcome.next_step
+      });
     }
   }
   const next = { ...verdict };
@@ -150,7 +227,17 @@ export const applyLlmCritic = async ({ verdict, recalledReqs, diff, selectCandid
     next.conflicts = [...(verdict.conflicts ?? []), ...(verdict.weak ?? []).filter((record) => violatedIds.has(`${record.scope}:${record.id}`))];
     next.weak = (verdict.weak ?? []).filter((record) => !violatedIds.has(`${record.scope}:${record.id}`));
     next.severity = 'critical';
-    next.notes = `LLM critic: 新增行为命中 ${violations.map((item) => `${item.id}（${item.reason}）`).join('；')}`;
+    // 三段式反馈：条款引文 / 证据行 / 下一步
+    next.notes = `LLM critic: ${violations.map((item) => `${item.id}「${item.clause_quote.slice(0, 60)}」证据「${item.diff_quote.slice(0, 60)}」→ ${item.next_step}`).join('；')}`;
   }
-  return { verdict: next, llm: { enabled: true, checked, violations, skippedReason: candidates.length ? undefined : 'no-candidates' } };
+  return {
+    verdict: next,
+    llm: {
+      enabled: true,
+      checked,
+      violations,
+      quote_rejections: quoteRejections,
+      skippedReason: candidates.length ? undefined : 'no-candidates'
+    }
+  };
 };

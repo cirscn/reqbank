@@ -5,6 +5,7 @@
 //   node verify.mjs                          # 默认：learning-log 里最近一个有召回的回合
 //   node verify.mjs --turn <turn_id>         # 指定回合
 //   node verify.mjs --tc <scope:TC-001>      # 直接指定条款（可多个）
+//   node verify.mjs --all                    # 全库枚举可执行 TC（CI 场景，不依赖本地 learning-log）
 //
 // 行为：
 //   - 从 TC 的 V 字段提取可执行命令（反引号内的命令即执行，不限语言生态）
@@ -12,6 +13,7 @@
 //     这是 best-effort 不是沙箱，确认安全可设 HARNESS_VERIFY_ALLOW_UNSAFE=1 越过
 //   - 顺序执行，逐条写 learning-log（event: verify）
 //   - 任一失败 → exit 1；无可执行命令 → exit 0 + skipped 说明
+//   - 引擎崩溃：默认 exit 0（钩子场景 fail-open）；HARNESS_GATE=1（CI/门禁）exit 2（fail-closed）
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -19,6 +21,7 @@ import { join } from 'node:path';
 import { getProjectRoot, repoPath } from './lib/repo-paths.mjs';
 import { loadAllTests } from './lib/harness-store.mjs';
 import { appendLog } from './lib/learning-log.mjs';
+import { extractCommands, findUnsafe } from './lib/tc-exec.mjs';
 
 const LOG_PATH = () => repoPath('.agentdoc', 'harness', 'learning-log.jsonl');
 
@@ -65,32 +68,10 @@ const collectTcIds = (events, turnId) => {
   return [...ids];
 };
 
-const extractCommands = (verifyText) => {
-  const commands = [];
-  for (const match of String(verifyText ?? '').matchAll(/`([^`]+)`/g)) {
-    const command = match[1].trim();
-    if (command) {
-      commands.push(command);
-    }
-  }
-  return commands;
-};
+const extractCommandsLocal = undefined; // 已迁移至 lib/tc-exec.mjs（finalize 的 Stop 自动验证共用）
+void extractCommandsLocal;
 
-// 危险模式清单：目标是拦"误写/误执行"级别的破坏，不是对抗刻意绕过（变量拼接、
-// base64 中转等绕过手段必然存在）——真要跑不可信内容请放进容器。模式命中即拒绝执行。
-const UNSAFE_CHECKS = [
-  ['rm 递归强删', (cmd) => /\brm\b/.test(cmd) && /(^|\s)-[a-zA-Z]*r/.test(cmd) && /(^|\s)-[a-zA-Z]*f/.test(cmd)],
-  ['提权执行', (cmd) => /\b(sudo|doas)\b/.test(cmd)],
-  ['格式化文件系统', (cmd) => /\bmkfs(\.\w+)?\b/.test(cmd)],
-  ['dd 写裸设备', (cmd) => /\bdd\b[^|]*\bof=\/dev\//.test(cmd)],
-  ['重定向写裸设备', (cmd) => />\s*\/dev\/(sd|disk|nvme|mmc)/.test(cmd)],
-  ['关机/重启', (cmd) => /\b(shutdown|reboot|halt|poweroff)\b/.test(cmd)],
-  ['下载内容直接进 shell', (cmd) => /\b(curl|wget)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da)?sh\b/.test(cmd)],
-  ['fork 炸弹', (cmd) => /:\s*\(\)\s*\{\s*:\s*\|/.test(cmd)],
-  ['递归改权限到系统路径', (cmd) => /\bch(mod|own)\s+-R\b[^|]*\s(~|\/(?!tmp))/.test(cmd)]
-];
-
-const findUnsafe = (command) => UNSAFE_CHECKS.find(([, test]) => test(command))?.[0];
+// 危险模式清单已迁移至 lib/tc-exec.mjs——verify 与 Stop 自动验证共用同一套执行语义。
 
 const main = async () => {
   const args = process.argv.slice(2);
@@ -111,6 +92,13 @@ const main = async () => {
   const testById = new Map(allTests.map((record) => [`${record.scope}:${record.id}`, record]));
 
   let tcIds = [...explicitTcs];
+  if (args.includes('--all')) {
+    // CI 场景：全库枚举（B6 修复——不依赖被 gitignore 的本地 learning-log，空转即空转，显式可见）
+    tcIds = allTests.map((record) => `${record.scope}:${record.id}`);
+    if (!tcIds.length) {
+      console.warn('[harness verify] --all：本仓库无任何 TC 条目');
+    }
+  }
   if (!tcIds.length) {
     const events = existsSync(LOG_PATH()) ? readLog() : [];
     const target = turnId ?? lastTurnWithRecall(events);
@@ -180,5 +168,6 @@ const main = async () => {
 
 main().catch((error) => {
   console.error(`[harness verify] fatal: ${error.message}`);
-  process.exit(0);
+  // B5 修复：CI/门禁环境（HARNESS_GATE=1）崩溃 fail-closed；默认（钩子/本地）维持 fail-open
+  process.exit(process.env.HARNESS_GATE === '1' ? 2 : 0);
 });

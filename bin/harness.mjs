@@ -16,7 +16,7 @@
 // 安装位置：<repo>/.harness/bin/harness.mjs
 
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -44,12 +44,14 @@ const readStdinJson = async () => {
 };
 
 const parseArgs = (argv) => {
-  const options = { agents: [], positional: [] };
+  const options = { agents: [], positional: [], gate: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--agents') {
       index += 1;
       options.agents = String(argv[index] ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+    } else if (arg === '--gate') {
+      options.gate = true;
     } else {
       options.positional.push(arg);
     }
@@ -218,6 +220,10 @@ const cmdInit = async (options) => {
       const claudeHooks = {
         SessionStart: [{ hooks: [{ type: 'command', command: hookCommand('session-init'), timeout: 15 }] }],
         UserPromptSubmit: [{ hooks: [{ type: 'command', command: hookCommand('recall'), timeout: 30 }] }],
+        PreToolUse: [{
+          matcher: 'Edit|Write|MultiEdit',
+          hooks: [{ type: 'command', command: hookCommand('pre-critic'), timeout: 30 }]
+        }],
         PostToolUse: [{
           matcher: 'Edit|Write|MultiEdit',
           hooks: [{ type: 'command', command: hookCommand('critic'), timeout: 60 }]
@@ -292,6 +298,61 @@ const cmdInit = async (options) => {
   console.log('  1. 填充 .agentdoc/harness/global/index.md 的命中范围与标签');
   console.log(`  2. 用 reqbank scope "任务描述" 验证召回（当前 ${fresh ? '空脚手架，先沉淀第一条 REQ' : '已有记忆'}）`);
   console.log('  3. 提交前保持钩子静默通过；确定性冲突会被 Stop 拦截');
+  console.log('  4. 冷启动沉淀：`reqbank mine` 考古候选 → inbox/ 人审入库；起草协议见 .agentdoc/harness/agent-guide.md');
+  console.log('  5. 持续回流：`reqbank reflect` 把重复违规聚合成条款建议（可配 --transcript 消费会话纠错）');
+
+  // P2 init --gate：把 gate 装配到提交/CI 时点（one engine, one verdict 的第二入口）
+  if (options.gate) {
+    const gitDir = join(root, '.git', 'hooks');
+    const preCommitPath = join(gitDir, 'pre-commit');
+    const preCommitBody = [
+      '#!/bin/sh',
+      '# reqbank gate (managed by reqbank init --gate) —— 手工改动会被下次 init --gate 覆盖',
+      'node "$(git rev-parse --show-toplevel)/.harness/bin/harness.mjs" gate --staged',
+      ''
+    ].join('\n');
+    try {
+      mkdirSync(gitDir, { recursive: true });
+      const existing = existsSync(preCommitPath) ? readFileSync(preCommitPath, 'utf8') : '';
+      if (!existing || existing.includes('reqbank gate')) {
+        writeFileSync(preCommitPath, preCommitBody);
+        chmodSync(preCommitPath, 0o755);
+        console.log('[reqbank] gate → .git/hooks/pre-commit（staged 改动过门禁才可提交）');
+      } else {
+        console.warn('[reqbank] ⚠ .git/hooks/pre-commit 已存在且非 reqbank 管理，未覆盖——请手工追加 gate --staged');
+      }
+      const workflowDir = join(root, '.github', 'workflows');
+      mkdirSync(workflowDir, { recursive: true });
+      writeFileSync(join(workflowDir, 'reqbank-gate.yml'), [
+        'name: reqbank gate',
+        'on:',
+        '  push:',
+        '  pull_request:',
+        'jobs:',
+        '  gate:',
+        '    runs-on: ubuntu-latest',
+        '    env:',
+        '      HARNESS_GATE: "1"',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '        with:',
+        '          fetch-depth: 0',
+        '      - uses: actions/setup-node@v4',
+        '        with:',
+        '          node-version: 22',
+        '      - name: check --strict（结构 + lint + 追溯完整性）',
+        '        run: node .harness/bin/harness.mjs check --strict',
+        '      - name: gate --base origin/main（条款判决）',
+        '        run: node .harness/bin/harness.mjs gate --base origin/${{ github.base_ref || \'main\' }}',
+        '      - name: verify --all（全库 TC 命中即测）',
+        '        run: node .harness/bin/harness.mjs verify --all',
+        ''
+      ].join('\n'));
+      console.log('[reqbank] gate → .github/workflows/reqbank-gate.yml（check --strict + gate --base + verify --all）');
+    } catch (error) {
+      console.warn(`[reqbank] ⚠ gate 装配失败：${error.message}`);
+    }
+  }
 };
 
 const cmdCheck = async (rest = []) => {
@@ -325,10 +386,19 @@ const cmdCheck = async (rest = []) => {
   }
     // 结构之外：内容级 lint（标签覆盖 / 矛盾条款对）
     try {
+      // P3 冻结基线健康：损坏的 gate-baseline.json 必须让 check 失败（fail-closed）
+      const gateBaselinePath = join(harnessDir, 'gate-baseline.json');
+      if (existsSync(gateBaselinePath)) {
+        try {
+          JSON.parse(readFileSync(gateBaselinePath, 'utf8'));
+        } catch (error) {
+          problems.push(`gate-baseline.json 无法解析（fail-closed）: ${error.message}`);
+        }
+      }
       const store = await import(join(ENGINE_DIR, 'lib', 'harness-store.mjs'));
       const lint = await import(join(ENGINE_DIR, 'lib', 'lint.mjs'));
-      const requirements = store.loadAllRequirements();
-      store.loadAllTests();
+      const requirements = store.loadAllRequirements({ includeInactive: true });
+      const allTests = store.loadAllTests({ includeInactive: true });
       const modulesWithMeta = store.listModulesWithMeta();
       const strict = rest.includes('--strict');
       let warnings = 0;
@@ -342,6 +412,52 @@ const cmdCheck = async (rest = []) => {
       }
       if (warnings > 0 && strict) {
         problems.push(`${warnings} 对疑似矛盾条款（--strict 模式下视为失败）`);
+      }
+      // P1 trace-integrity：引用完整性（悬挂/不对称=error）+ 铁律②与索引漂移（warning，--strict 升级）
+      const trace = lint.lintTraceIntegrity({
+        requirements,
+        tests: allTests,
+        moduleDirNames: modulesWithMeta.filter((module) => module.name !== 'global').map((module) => module.name),
+        registeredModuleNames: store.listRegisteredModules()
+      });
+      for (const problem of trace.errors) {
+        problems.push(`trace-integrity: ${problem}`);
+      }
+      let traceWarnings = 0;
+      for (const warning of trace.warnings) {
+        traceWarnings += 1;
+        console.warn(`[reqbank] ⚠ trace-integrity: ${warning}`);
+      }
+      if (traceWarnings > 0 && strict) {
+        problems.push(`${traceWarnings} 项追溯警告（--strict 模式下视为失败）`);
+      }
+      // P2 断言覆盖率：含禁止语义却无断言的条款——纯提示，不 strict 升级（渐进补齐）
+      for (const hint of lint.lintAssertionCoverage(requirements)) {
+        console.warn(`[reqbank] ⚠ ${hint}`);
+      }
+      // P3 生命周期：superseded 目标/成环（error）；gap/inferred 置信度（warning，gap 在 strict 下升级）
+      const lifecycle = lint.lintLifecycle(requirements);
+      for (const problem of lifecycle.errors) {
+        problems.push(`lifecycle: ${problem}`);
+      }
+      for (const warning of lifecycle.warnings) {
+        console.warn(`[reqbank] ⚠ lifecycle: ${warning}`);
+      }
+      if (lifecycle.warnings.some((w) => w.includes('gap 置信度')) && strict) {
+        problems.push('存在 gap 置信度条款（--strict 模式下视为失败）——用 reqbank confirm 逐条人审');
+      }
+      // P3 漂移检测：命中路径在 git 追踪文件里零匹配 → 条款僵尸（warning；HARNESS_DRIFT_SKIP=1 跳过）
+      if (!process.env.HARNESS_DRIFT_SKIP) {
+        const gitRootDir = gitRoot();
+        if (gitRootDir) {
+          const ls = spawnSync('git', ['-C', gitRootDir, 'ls-files'], { encoding: 'utf8' });
+          if (ls.status === 0) {
+            const repoFiles = ls.stdout.split('\n').filter(Boolean);
+            for (const warning of lint.lintDeadPaths({ modulesWithMeta, repoFiles })) {
+              console.warn(`[reqbank] ⚠ ${warning}`);
+            }
+          }
+        }
       }
       // 解析期完整性：重复 ID（error）/ 未识别段名（warning，可能是文档漂移）
       for (const parseWarning of store.consumeParseWarnings()) {
@@ -499,6 +615,70 @@ const main = async () => {
       process.exit(result.status ?? 0);
       return;
     }
+    case 'mine':
+    case 'reflect':
+    case 'status': {
+      const result = spawnSync(process.execPath, [join(ENGINE_DIR, 'status.mjs'), ...rest], {
+        stdio: 'inherit',
+        env: { ...process.env, HARNESS_PROJECT_ROOT: process.env.HARNESS_PROJECT_ROOT }
+      });
+      process.exit(result.status ?? 0);
+      return;
+    }
+    case 'confirm': {
+      // P3 人审闭环：inferred/gap → confirmed（写索引第 5 列元数据，幂等）
+      const root = projectRoot();
+      if (!root) {
+        console.error('[reqbank] no scaffold found (run init)');
+        process.exit(2);
+      }
+      const target = rest[0] ?? '';
+      const matchId = target.match(/^([\w-]+):(G?REQ-\d{3,})$/);
+      if (!matchId) {
+        console.error('[reqbank] usage: reqbank confirm <scope:REQ-id>');
+        process.exit(2);
+      }
+      const store = await import(join(ENGINE_DIR, 'lib', 'harness-store.mjs'));
+      const file = matchId[1] === 'global'
+        ? join(root, '.agentdoc', 'harness', 'global', 'requirements.md')
+        : join(root, '.agentdoc', 'harness', 'modules', matchId[1], 'requirements.md');
+      if (!existsSync(file)) {
+        console.error(`[reqbank] 未找到 ${file}`);
+        process.exit(1);
+      }
+      const lines = readFileSync(file, 'utf8').split('\n');
+      let done = false;
+      for (let index = 0; index < lines.length; index += 1) {
+        if (!lines[index].startsWith(`${matchId[2]} |`)) continue;
+        const parts = lines[index].split('|').map((part) => part.trim());
+        const meta = parts.length >= 5 ? store.parseIndexMeta(parts[3]) : null;
+        if (meta) {
+          const status = meta.status === 'superseded' ? `superseded>${meta.supersedes}` : meta.status;
+          parts[3] = `${status}:confirmed${meta.enforcement === 'warn' ? ':warn' : ''}`;
+        } else {
+          parts.splice(3, 0, 'active:confirmed');
+        }
+        lines[index] = parts.join(' | ');
+        done = true;
+        break;
+      }
+      if (!done) {
+        console.error(`[reqbank] ${file} 中未找到 ${matchId[2]} 的索引行`);
+        process.exit(1);
+      }
+      writeFileSync(file, lines.join('\n'));
+      console.log(`[reqbank] ✓ ${target} 置信度 → confirmed`);
+      return;
+    }
+    case 'gate': {
+      const result = spawnSync(process.execPath, [join(ENGINE_DIR, 'gate.mjs'), ...rest], {
+        stdio: 'inherit',
+        env: { ...process.env, HARNESS_PROJECT_ROOT: process.env.HARNESS_PROJECT_ROOT }
+      });
+      process.exit(result.status ?? 0);
+      return;
+    }
+    case 'pre-critic':
     case 'session-init':
     case 'recall':
     case 'critic':
@@ -517,12 +697,13 @@ const main = async () => {
       return;
     }
     default:
-      console.error('usage: reqbank <init|scope|check|doctor|verify|report|impact|smoke|update|version|session-init|recall|critic|finalize> [args]');
+      console.error('usage: reqbank <init|scope|check|doctor|verify|gate|status|confirm|report|impact|smoke|update|version|session-init|recall|pre-critic|critic|finalize> [args]');
       process.exit(command ? 2 : 0);
   }
 };
 
 main().catch((error) => {
   console.error(`[reqbank] fatal: ${error.message}`);
-  process.exit(0);
+  // HARNESS_GATE=1（CI/门禁环境）：崩溃 fail-closed；默认（钩子/本地）维持 fail-open
+  process.exit(process.env.HARNESS_GATE === '1' ? 2 : 0);
 });
