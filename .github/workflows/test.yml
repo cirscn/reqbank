@@ -16,41 +16,33 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # 逐套件分步 + 失败尾巴打成 annotation（公开 API 可读，免日志权限定位 Windows 失败面）。
-      # 本地等价命令仍是 npm test。bpms 夹具相关用例在无夹具环境自动跳过。
+      # 全套件 continue-on-error + 末步统一诊断：失败尾巴经 node 净化后打成 annotation
+      # （公开 API 可读，免日志权限定位 Windows 失败面）。本地等价命令仍是 npm test。
       - name: p0 回归
         shell: bash
-        run: |
-          node eval/p0-regression.mjs > /tmp/s.log 2>&1; rc=$?
-          if [ $rc -ne 0 ]; then echo "::error title=p0-fail::$(tail -c 600 /tmp/s.log | tr '\n' '|' | tr -d '\r')"; fi
-          exit $rc
+        continue-on-error: true
+        run: node eval/p0-regression.mjs > /tmp/p0.log 2>&1; echo $? > /tmp/p0.rc; test ! -s /tmp/p0.rc || true; exit 0
       - name: p1 回归
         shell: bash
-        run: |
-          node eval/p1-regression.mjs > /tmp/s.log 2>&1; rc=$?
-          if [ $rc -ne 0 ]; then echo "::error title=p1-fail::$(tail -c 600 /tmp/s.log | tr '\n' '|' | tr -d '\r')"; fi
-          exit $rc
+        continue-on-error: true
+        run: node eval/p1-regression.mjs > /tmp/p1.log 2>&1; echo $? > /tmp/p1.rc; exit 0
       - name: p2 回归
         shell: bash
-        run: |
-          node eval/p2-regression.mjs > /tmp/s.log 2>&1; rc=$?
-          if [ $rc -ne 0 ]; then echo "::error title=p2-fail::$(tail -c 600 /tmp/s.log | tr '\n' '|' | tr -d '\r')"; fi
-          exit $rc
+        continue-on-error: true
+        run: node eval/p2-regression.mjs > /tmp/p2.log 2>&1; echo $? > /tmp/p2.rc; exit 0
       - name: p3p4 回归
         shell: bash
-        run: |
-          node eval/p3p4-regression.mjs > /tmp/s.log 2>&1; rc=$?
-          if [ $rc -ne 0 ]; then echo "::error title=p3p4-fail::$(tail -c 600 /tmp/s.log | tr '\n' '|' | tr -d '\r')"; fi
-          exit $rc
+        continue-on-error: true
+        run: node eval/p3p4-regression.mjs > /tmp/p3p4.log 2>&1; echo $? > /tmp/p3p4.rc; exit 0
       - name: 对抗评测
         shell: bash
-        run: |
-          node eval/adversarial.mjs > /tmp/s.log 2>&1; rc=$?
-          if [ $rc -ne 0 ]; then echo "::error title=adv-fail::$(tail -c 600 /tmp/s.log | tr '\n' '|' | tr -d '\r')"; fi
-          exit $rc
+        continue-on-error: true
+        run: node eval/adversarial.mjs > /tmp/adv.log 2>&1; echo $? > /tmp/adv.rc; exit 0
       - name: smoke
         shell: bash
+        continue-on-error: true
+        run: node scripts/smoke.mjs > /tmp/smoke.log 2>&1; echo $? > /tmp/smoke.rc; exit 0
+      - name: 诊断汇总（失败套件尾巴 → annotation）
+        shell: bash
         run: |
-          node scripts/smoke.mjs > /tmp/s.log 2>&1; rc=$?
-          if [ $rc -ne 0 ]; then echo "::error title=smoke-fail::$(tail -c 600 /tmp/s.log | tr '\n' '|' | tr -d '\r')"; fi
-          exit $rc
+          node scripts/ci-diagnostics.mjs
