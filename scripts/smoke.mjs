@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // harness-kit 引擎自检：在临时目录建脚手架 → 验证召回/check/钩子进程可运行。
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +29,10 @@ try {
   expect(init.status === 0, `init exit ${init.status}: ${init.stderr}`);
   expect(existsSync(join(scratch, '.agentdoc', 'harness', 'index.md')), 'scaffold index.md missing');
   expect(existsSync(join(scratch, '.codex', 'hooks.json')), 'codex adapter missing');
+  const gitignoreText = existsSync(join(scratch, '.gitignore')) ? readFileSync(join(scratch, '.gitignore'), 'utf8') : '';
+  expect(gitignoreText.includes('.agentdoc/harness/hook-payloads/'), 'gitignore should ignore hook-payloads/');
+  expect(gitignoreText.includes('.agentdoc/harness/learning-log.jsonl'), 'gitignore should ignore learning-log.jsonl');
+  expect(!gitignoreText.includes('.claude/settings.local.json'), 'codex-only init must not touch claude local settings');
 
   //沉淀一条 REQ 后 scope 应命中
   const reqDir = join(scratch, '.agentdoc', 'harness', 'modules', 'demo');

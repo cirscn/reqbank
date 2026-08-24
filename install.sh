@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# harness-kit 安装脚本
+# reqbank 安装脚本
 # 用法（二选一）：
 #   curl -fsSL <raw-url>/install.sh | bash
 #   bash install.sh [--agents codex,claude] [--repo /path/to/repo]
@@ -30,11 +30,11 @@ if [[ -z "$KIT_DIR" ]]; then
   fi
 fi
 if [[ -z "$KIT_DIR" ]]; then
-  KIT_RAW_URL="${HARNESS_KIT_URL:-https://github.com/cirscn/harness-kit}"
+  KIT_RAW_URL="${HARNESS_KIT_URL:-https://github.com/cirscn/reqbank}"
   TMP=$(mktemp -d)
   echo "[reqbank] downloading kit from $KIT_RAW_URL"
-  git clone --depth 1 -q "$KIT_RAW_URL.git" "$TMP/harness-kit"
-  KIT_DIR="$TMP/harness-kit"
+  git clone --depth 1 -q "$KIT_RAW_URL.git" "$TMP/reqbank"
+  KIT_DIR="$TMP/reqbank"
 fi
 
 echo "[reqbank] target repo: $REPO"

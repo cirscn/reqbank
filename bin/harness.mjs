@@ -61,6 +61,32 @@ const gitRoot = () => {
   return result.status === 0 ? result.stdout.trim() : null;
 };
 
+const GITIGNORE_MARKER = '# reqbank(harness) runtime artifacts';
+
+// 只忽略引擎运行产物；.agentdoc 下的真源文档（modules/global）必须进版本库。
+// 幂等：已存在的条目跳过；标记块已存在时只在块内补缺，避免重复块。
+const ensureGitignoreEntries = (root, entries) => {
+  const gitignorePath = join(root, '.gitignore');
+  const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf8') : '';
+  const present = new Set(existing.split('\n').map((line) => line.trim()));
+  const missing = entries.filter((entry) => !present.has(entry));
+  if (!missing.length) {
+    return [];
+  }
+  let updated;
+  const lines = existing.split('\n');
+  const markerIndex = lines.findIndex((line) => line.trim() === GITIGNORE_MARKER);
+  if (markerIndex >= 0) {
+    lines.splice(markerIndex + 1, 0, ...missing);
+    updated = lines.join('\n');
+  } else {
+    const prefix = existing.length === 0 || existing.endsWith('\n') ? '' : '\n';
+    updated = `${existing}${prefix}${GITIGNORE_MARKER}\n${missing.join('\n')}\n`;
+  }
+  writeFileSync(gitignorePath, updated, 'utf8');
+  return missing;
+};
+
 const projectRoot = () => {
   if (process.env.HARNESS_PROJECT_ROOT) {
     return resolve(process.env.HARNESS_PROJECT_ROOT);
@@ -169,6 +195,19 @@ const cmdInit = async (options) => {
     }
   }
 
+  const gitignoreEntries = [
+    '.agentdoc/harness/hook-payloads/',
+    '.agentdoc/harness/learning-log.jsonl'
+  ];
+  if (agents.includes('claude')) {
+    // Claude Code 个人权限白名单（点"始终允许"自动累积），按约定不进库，避免搭车提交与信息泄露
+    gitignoreEntries.push('.claude/settings.local.json');
+  }
+  const gitignoreAdded = ensureGitignoreEntries(root, gitignoreEntries);
+  if (gitignoreAdded.length) {
+    console.log(`[reqbank] gitignore += ${gitignoreAdded.join(', ')}`);
+  }
+
   console.log('\n下一步：');
   console.log('  1. 填充 .agentdoc/harness/global/index.md 的命中范围与标签');
   console.log(`  2. 用 reqbank scope "任务描述" 验证召回（当前 ${fresh ? '空脚手架，先沉淀第一条 REQ' : '已有记忆'}）`);
@@ -274,14 +313,14 @@ const main = async () => {
         const before0 = existsSync(join(harnessDir0, 'VERSION')) ? readFileSync(join(harnessDir0, 'VERSION'), 'utf8').trim() : 'unknown';
         const tmp0 = mkdtempSync(join(tmpdir(), 'harness-npm-'));
         try {
-          const view = spawnSync('npm view harness-kit version', { shell: true, encoding: 'utf8' });
+          const view = spawnSync(`npm view ${PACKAGE_NAME} version`, { shell: true, encoding: 'utf8' });
           const latest = (view.stdout ?? '').trim();
           if (!latest) throw new Error('registry unreachable');
           if (latest === before0) {
             console.log(`[reqbank] 已是最新 ${latest}`);
             return;
           }
-          const pack = spawnSync(`npm pack harness-kit@${latest} --pack-destination "${tmp0}"`, { shell: true, encoding: 'utf8' });
+          const pack = spawnSync(`npm pack ${PACKAGE_NAME}@${latest} --pack-destination "${tmp0}"`, { shell: true, encoding: 'utf8' });
           const tgzName = (pack.stdout ?? '').trim().split('\n').filter(Boolean).at(-1);
           if (!tgzName) throw new Error('npm pack failed');
           spawnSync('tar', ['-xzf', join(tmp0, tgzName), '-C', tmp0]);
@@ -292,6 +331,7 @@ const main = async () => {
           cpSync(join(pkgDir, 'templates'), join(harnessDir0, 'templates'), { recursive: true });
           writeFileSync(join(harnessDir0, 'VERSION'), `${latest}\n`);
           console.log(`[reqbank] updated ${before0} -> ${latest}（.agentdoc/harness 真源未动）`);
+          console.log('[reqbank] 如需补齐 .gitignore 运行产物忽略与适配器渲染，可重跑 harness init（幂等）');
         } catch (error) {
           console.error(`[reqbank] npm update failed: ${error.message}；可改用 --git`);
           process.exitCode = 1;
@@ -300,7 +340,7 @@ const main = async () => {
         }
         return;
       }
-      const remote = process.env.HARNESS_KIT_URL ?? 'git@github.com:cirscn/harness-kit.git';
+      const remote = process.env.HARNESS_KIT_URL ?? 'git@github.com:cirscn/reqbank.git';
       const ref = options.positional.filter((arg) => arg !== '--git')[0] ?? 'main';
       const root = projectRoot() ?? gitRoot() ?? process.cwd();
       const harnessDir = join(root, '.harness');
@@ -328,6 +368,7 @@ const main = async () => {
         const version = readFileSync(join(kit, 'VERSION'), 'utf8').trim();
         writeFileSync(join(harnessDir, 'VERSION'), `${version}\n`);
         console.log(`[reqbank] updated ${before} -> ${version}（.agentdoc/harness 真源未动）`);
+        console.log('[reqbank] 如需补齐 .gitignore 运行产物忽略与适配器渲染，可重跑 harness init（幂等）');
       } finally {
         rmSync(tmp, { recursive: true, force: true });
       }

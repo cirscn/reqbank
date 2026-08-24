@@ -34,6 +34,8 @@ npx @cirscn/reqbank init --agents codex,claude   # 首次安装（引擎 + 脚�
     └── modules/<模块>/        index.md + requirements.md + tests.md
 ```
 
+init 会向 `.gitignore` 幂等追加运行产物忽略（已存在则跳过）：`hook-payloads/`、`learning-log.jsonl`，选装 claude 时另加 `.claude/settings.local.json`（Claude Code 个人权限白名单，按约定不进库）。`.agentdoc` 真源文档不受影响，照常提交。
+
 ## 使用闭环
 
 ### 1. 沉淀需求
