@@ -50,7 +50,7 @@ tail -1 .agentdoc/harness/learning-log.jsonl   # 有新事件行 = 钩子已在�
 - `requirements.md`：`## 索引` 下 `REQ-001 | tag | TC-001 | 标题`；`## 需求澄清` 下 `REQ-001: 正文`
 - `tests.md`：`## 索引` 下 `TC-001 | tag | REQ-001 | 标题`；`## 测试用例` 下 `TC-001: G=前提 | W=改动 | E=预期 | V=\`pnpm vitest run ...\``
 
-三条铁律：① 条款要写"不得做什么"，不只写理想路径；② 每条 REQ 挂可执行 TC（V 字段命令需以 pnpm/npm/node/yarn/npx 开头）；③ REQ 标签必须出现在某条命中路径的标签里，否则 `check` 报 tag-coverage。
+三条铁律：① 条款要写"不得做什么"，不只写理想路径；② 每条 REQ 挂可执行 TC（V 字段写反引号包裹的命令即可，任意语言生态如 pnpm/pytest/go test 均可执行；agent 不得在 V 字段写破坏性命令——rm 递归强删、sudo、下载管道进 shell 等，verify 侧有确定性拒绝兜底）；③ REQ 标签必须出现在某条命中路径的标签里，否则 `check` 报 tag-coverage。
 
 ## CLI 参考
 
@@ -87,6 +87,7 @@ tail -1 .agentdoc/harness/learning-log.jsonl   # 有新事件行 = 钩子已在�
 | `HARNESS_LLM_CRITIC=1` | 启用 LLM critic，捕获新增式违反禁止条款；需 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`（兼容 `OPENAI_BASE_URL`）；无 key/超时/解析失败一律 fail-open |
 | `HARNESS_LLM_MODEL` / `HARNESS_LLM_TIMEOUT_MS` / `HARNESS_LLM_MAX_RECORDS` | LLM critic 细调 |
 | `HARNESS_IMPACT=off` | 关闭结构影响面层 |
+| `HARNESS_VERIFY_ALLOW_UNSAFE=1` | 越过 verify 的危险命令拒绝（确认安全时才用；拦截不可信内容请用容器，不要用此开关） |
 
 ## 故障对照（确定性规则）
 

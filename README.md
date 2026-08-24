@@ -111,7 +111,7 @@ reqbank scope "修复 useFetch 的错误提示去重问题"
 | `reqbank init --agents codex,claude` | 初始化脚手架 + 渲染 agent 适配器 |
 | `reqbank scope "<任务>"` | 任务 → REQ/TC 证据链（JSONL） |
 | `reqbank check [--strict]` | 结构完整性 + 标签覆盖 lint + 矛盾条款 lint |
-| `reqbank verify [--tc <id>]` | 执行命中 TC 的验证命令（"命中即测"机械化） |
+| `reqbank verify [--tc <id>]` | 执行命中 TC 的验证命令（"命中即测"机械化）；破坏性命令确定性拒绝 |
 | `reqbank report [--days 7] [--json]` | 召回命中率 / 冲突分布 / 阻断趋势 |
 | `reqbank impact <file...>` | 基于 `.mex/graph.db` 的调用邻居影响面 |
 | `reqbank update` | 升级引擎（npm registry，`--git` 走远端） |

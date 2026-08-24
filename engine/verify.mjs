@@ -7,7 +7,9 @@
 //   node verify.mjs --tc <scope:TC-001>      # 直接指定条款（可多个）
 //
 // 行为：
-//   - 从 TC 的 V 字段提取可执行命令（反引号内、以 pnpm/npm/node/yarn/npx 开头）
+//   - 从 TC 的 V 字段提取可执行命令（反引号内的命令即执行，不限语言生态）
+//   - 危险命令确定性拒绝（fail-closed，计入失败）：拦截误写/误执行的破坏性命令；
+//     这是 best-effort 不是沙箱，确认安全可设 HARNESS_VERIFY_ALLOW_UNSAFE=1 越过
 //   - 顺序执行，逐条写 learning-log（event: verify）
 //   - 任一失败 → exit 1；无可执行命令 → exit 0 + skipped 说明
 
@@ -66,12 +68,28 @@ const extractCommands = (verifyText) => {
   const commands = [];
   for (const match of String(verifyText ?? '').matchAll(/`([^`]+)`/g)) {
     const command = match[1].trim();
-    if (/^(pnpm|npm|npx|yarn|node)\s/.test(command)) {
+    if (command) {
       commands.push(command);
     }
   }
   return commands;
 };
+
+// 危险模式清单：目标是拦"误写/误执行"级别的破坏，不是对抗刻意绕过（变量拼接、
+// base64 中转等绕过手段必然存在）——真要跑不可信内容请放进容器。模式命中即拒绝执行。
+const UNSAFE_CHECKS = [
+  ['rm 递归强删', (cmd) => /\brm\b/.test(cmd) && /(^|\s)-[a-zA-Z]*r/.test(cmd) && /(^|\s)-[a-zA-Z]*f/.test(cmd)],
+  ['提权执行', (cmd) => /\b(sudo|doas)\b/.test(cmd)],
+  ['格式化文件系统', (cmd) => /\bmkfs(\.\w+)?\b/.test(cmd)],
+  ['dd 写裸设备', (cmd) => /\bdd\b[^|]*\bof=\/dev\//.test(cmd)],
+  ['重定向写裸设备', (cmd) => />\s*\/dev\/(sd|disk|nvme|mmc)/.test(cmd)],
+  ['关机/重启', (cmd) => /\b(shutdown|reboot|halt|poweroff)\b/.test(cmd)],
+  ['下载内容直接进 shell', (cmd) => /\b(curl|wget)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da)?sh\b/.test(cmd)],
+  ['fork 炸弹', (cmd) => /:\s*\(\)\s*\{\s*:\s*\|/.test(cmd)],
+  ['递归改权限到系统路径', (cmd) => /\bch(mod|own)\s+-R\b[^|]*\s(~|\/(?!tmp))/.test(cmd)]
+];
+
+const findUnsafe = (command) => UNSAFE_CHECKS.find(([, test]) => test(command))?.[0];
 
 const main = async () => {
   const args = process.argv.slice(2);
@@ -122,6 +140,15 @@ const main = async () => {
       continue;
     }
     for (const command of commands) {
+      if (!process.env.HARNESS_VERIFY_ALLOW_UNSAFE) {
+        const unsafeLabel = findUnsafe(command);
+        if (unsafeLabel) {
+          failures += 1;
+          console.error(`  ⛔ ${fullId}: 命中危险模式（${unsafeLabel}），拒绝执行：${command}`);
+          console.error('     确认安全后设 HARNESS_VERIFY_ALLOW_UNSAFE=1 重跑');
+          continue;
+        }
+      }
       process.stdout.write(`  ▶ ${fullId}: ${command}\n`);
       const result = spawnSync(command, {
         cwd: root,
