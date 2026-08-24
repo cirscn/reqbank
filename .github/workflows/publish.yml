@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write   # npm Trusted Publishing (OIDC)
     steps:
       - uses: actions/checkout@v4
 
@@ -18,6 +19,10 @@ jobs:
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org/'
+
+      # OIDC 发布需要 npm >= 11.5.1（Node 22 自带的 npm 版本偏旧）
+      - name: Upgrade npm
+        run: npm install -g npm@latest
 
       - name: 版本一致性校验（tag = package.json = VERSION）
         run: |
@@ -31,7 +36,5 @@ jobs:
       - name: Smoke
         run: node scripts/smoke.mjs
 
-      - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm（零凭据，带溯源签名）
+        run: npm publish --access public --provenance
