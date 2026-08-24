@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>reqbank 提升计划 · 交互导览</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --bg2: #10161d;
+    --card: #151d26;
+    --card2: #1a232e;
+    --line: #263241;
+    --txt: #dce6f1;
+    --muted: #8b9bb0;
+    --dim: #5f7186;
+    --cyan: #38bdf8;
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --violet: #a78bfa;
+    --pink: #f472b6;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; scroll-padding-top: 64px; }
+  body {
+    background: var(--bg); color: var(--txt);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+    line-height: 1.65; font-size: 15px;
+  }
+  /* ===== nav ===== */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(11,15,20,.88); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 4px;
+    padding: 0 20px; height: 52px; overflow-x: auto;
+  }
+  nav .brand { font-weight: 700; color: var(--cyan); margin-right: 14px; white-space: nowrap; font-size: 15px; }
+  nav a {
+    color: var(--muted); text-decoration: none; padding: 6px 12px; border-radius: 8px;
+    white-space: nowrap; font-size: 13.5px; transition: all .15s;
+  }
+  nav a:hover { color: var(--txt); background: var(--card); }
+  nav a.active { color: var(--cyan); background: rgba(56,189,248,.12); }
+  /* ===== layout ===== */
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+  section { padding: 56px 0 24px; border-bottom: 1px solid var(--line); }
+  h2 { font-size: 24px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  h2 .num { color: var(--dim); font-size: 14px; font-family: var(--mono); }
+  .sub { color: var(--muted); margin-bottom: 26px; font-size: 14px; }
+  /* ===== hero ===== */
+  header.hero { padding: 72px 0 48px; }
+  .hero h1 { font-size: 38px; line-height: 1.25; margin-bottom: 14px; }
+  .hero h1 em { color: var(--cyan); font-style: normal; }
+  .hero p.lead { color: var(--muted); max-width: 760px; font-size: 16px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+  .stat {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 20px; min-width: 130px;
+  }
+  .stat b { font-size: 24px; color: var(--cyan); font-family: var(--mono); display: block; }
+  .stat span { color: var(--muted); font-size: 12.5px; }
+  .stat.warn b { color: var(--amber); }
+  /* ===== pipeline ===== */
+  .pipe { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 8px; }
+  .stage {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 14px 12px; cursor: pointer; transition: all .15s; position: relative;
+  }
+  .stage:hover { border-color: var(--cyan); }
+  .stage.sel { border-color: var(--cyan); background: rgba(56,189,248,.08); box-shadow: 0 0 0 1px var(--cyan); }
+  .stage .evt { font-family: var(--mono); font-size: 11.5px; color: var(--cyan); }
+  .stage .nm { font-weight: 600; margin: 3px 0 2px; font-size: 14.5px; }
+  .stage .fl { color: var(--dim); font-size: 12px; font-family: var(--mono); }
+  .stage .arrow { position: absolute; right: -13px; top: 50%; transform: translateY(-50%); color: var(--dim); z-index: 2; font-size: 15px; }
+  .stage:nth-child(4) .arrow { display: none; }
+  .detail {
+    background: var(--card2); border: 1px solid var(--line); border-radius: 12px;
+    padding: 20px 22px; margin-top: 14px; min-height: 150px;
+  }
+  .detail h3 { font-size: 16px; color: var(--cyan); margin-bottom: 10px; font-family: var(--mono); }
+  .detail p { margin-bottom: 8px; font-size: 14px; }
+  .detail .lbl { color: var(--dim); font-size: 12px; margin-bottom: 3px; }
+  .detail ul { margin: 4px 0 10px 18px; font-size: 13.5px; color: var(--muted); }
+  .detail ul li { margin-bottom: 3px; }
+  .detail .code { font-family: var(--mono); font-size: 12.5px; color: var(--violet); background: rgba(167,139,250,.08); padding: 1px 6px; border-radius: 5px; }
+  .truthbar {
+    display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; align-items: center;
+    color: var(--muted); font-size: 13px;
+  }
+  .chip {
+    background: var(--card); border: 1px solid var(--line); border-radius: 999px;
+    padding: 4px 14px; font-size: 12.5px; color: var(--muted); font-family: var(--mono);
+  }
+  /* ===== market ===== */
+  .tracks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
+  .track { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .track h4 { font-size: 14.5px; margin-bottom: 6px; }
+  .track p { color: var(--muted); font-size: 12.5px; margin-bottom: 8px; }
+  .track .ex { font-size: 12px; color: var(--dim); font-family: var(--mono); }
+  .track.t1 h4 { color: var(--violet); } .track.t2 h4 { color: var(--pink); } .track.t3 h4 { color: var(--amber); }
+  .vacancy {
+    background: linear-gradient(135deg, rgba(56,189,248,.12), rgba(52,211,153,.08));
+    border: 1px solid var(--cyan); border-radius: 12px; padding: 18px 20px; margin-bottom: 22px;
+  }
+  .vacancy b { color: var(--green); }
+  .comps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .comp {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; cursor: pointer; transition: all .15s;
+  }
+  .comp:hover { border-color: var(--muted); }
+  .comp .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .comp .nm { font-weight: 600; font-size: 14px; }
+  .comp .stars { color: var(--amber); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+  .comp .desc { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .comp .miss { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 13px; color: var(--txt); }
+  .comp .miss b { color: var(--red); font-weight: 600; }
+  .comp.open .miss { display: block; }
+  .comp .hint { color: var(--dim); font-size: 11.5px; margin-top: 6px; }
+  .comp.open .hint { display: none; }
+  /* ===== bugs ===== */
+  .filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .fbtn {
+    background: var(--card); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 999px; padding: 5px 16px; font-size: 13px; cursor: pointer; transition: all .15s;
+  }
+  .fbtn:hover { color: var(--txt); }
+  .fbtn.on { background: rgba(56,189,248,.14); border-color: var(--cyan); color: var(--cyan); }
+  .buglist { display: grid; gap: 10px; }
+  .bug {
+    background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--dim);
+    border-radius: 10px; padding: 13px 16px; cursor: pointer; transition: all .15s;
+  }
+  .bug:hover { background: var(--card2); }
+  .bug.sev-crit { border-left-color: var(--red); }
+  .bug.sev-sem { border-left-color: var(--amber); }
+  .bug.sev-silent { border-left-color: var(--violet); }
+  .bug .row1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .bug .bid { font-family: var(--mono); font-weight: 700; font-size: 14px; }
+  .bug .bt { font-weight: 600; font-size: 14px; flex: 1; }
+  .sevtag { font-size: 11px; padding: 2px 9px; border-radius: 999px; font-weight: 600; }
+  .sev-crit .sevtag { background: rgba(248,113,113,.15); color: var(--red); }
+  .sev-sem .sevtag { background: rgba(251,191,36,.15); color: var(--amber); }
+  .sev-silent .sevtag { background: rgba(167,139,250,.15); color: var(--violet); }
+  .vtag { font-size: 11px; padding: 2px 9px; border-radius: 999px; background: rgba(56,189,248,.12); color: var(--cyan); font-family: var(--mono); white-space: nowrap; }
+  .bug .loc { font-family: var(--mono); font-size: 12px; color: var(--dim); margin-top: 5px; }
+  .bug .more { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 13.5px; color: var(--muted); }
+  .bug.open .more { display: block; }
+  .bug .more .fix { margin-top: 8px; color: var(--green); font-size: 13px; }
+  /* ===== roadmap ===== */
+  .layers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 28px; }
+  .layer { border-radius: 12px; padding: 14px; border: 1px solid var(--line); background: var(--card); text-align: center; }
+  .layer .ln { font-size: 12px; font-family: var(--mono); color: var(--dim); }
+  .layer .lt { font-weight: 700; font-size: 14px; margin: 3px 0; }
+  .layer .ls { font-size: 12px; font-family: var(--mono); }
+  .layer.has { border-color: rgba(52,211,153,.5); } .layer.has .ls { color: var(--green); }
+  .layer.hole { border-color: rgba(251,191,36,.5); } .layer.hole .ls { color: var(--amber); }
+  .layer.none { border-style: dashed; } .layer.none .ls { color: var(--dim); }
+  .layer.hl { box-shadow: 0 0 0 2px var(--cyan); border-color: var(--cyan); }
+  .phase-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+  .ptab {
+    background: var(--card); border: 1px solid var(--line); color: var(--muted);
+    padding: 8px 16px; border-radius: 10px; cursor: pointer; font-size: 13.5px; transition: all .15s;
+  }
+  .ptab b { font-family: var(--mono); margin-right: 6px; }
+  .ptab:hover { color: var(--txt); }
+  .ptab.on { background: rgba(56,189,248,.12); border-color: var(--cyan); color: var(--cyan); }
+  .phase-head { margin-bottom: 14px; }
+  .phase-head h3 { font-size: 19px; }
+  .phase-head p { color: var(--muted); font-size: 13.5px; margin-top: 3px; }
+  .items { display: grid; gap: 10px; }
+  .item {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 13px 16px; cursor: pointer; transition: all .15s;
+  }
+  .item:hover { background: var(--card2); }
+  .item .r1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .item .it { font-weight: 600; font-size: 14.5px; flex: 1; }
+  .meta { font-size: 11px; font-family: var(--mono); padding: 2px 8px; border-radius: 5px; }
+  .m-S { background: rgba(52,211,153,.14); color: var(--green); }
+  .m-M { background: rgba(251,191,36,.14); color: var(--amber); }
+  .m-L { background: rgba(248,113,113,.14); color: var(--red); }
+  .m-hi { background: rgba(56,189,248,.14); color: var(--cyan); }
+  .m-md { background: rgba(139,155,176,.14); color: var(--muted); }
+  .item .desc { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 13.5px; color: var(--muted); }
+  .item.open .desc { display: block; }
+  .item .desc .src { display: block; margin-top: 8px; color: var(--dim); font-size: 12.5px; }
+  .item .desc .src b { color: var(--violet); font-weight: 600; }
+  /* ===== strategy ===== */
+  .strats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .strat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .strat h4 { font-size: 15px; margin-bottom: 10px; }
+  .strat p { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  .strat .loop { font-family: var(--mono); font-size: 12px; color: var(--cyan); background: rgba(56,189,248,.07); border-radius: 8px; padding: 10px; margin-top: 8px; line-height: 1.9; }
+  .s1 h4 { color: var(--cyan); } .s2 h4 { color: var(--green); } .s3 h4 { color: var(--violet); }
+  footer { padding: 36px 0 48px; color: var(--dim); font-size: 13px; }
+  footer a { color: var(--muted); }
+  @media (max-width: 860px) {
+    .pipe, .tracks, .comps, .layers, .strats { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 560px) {
+    .pipe, .tracks, .comps, .layers, .strats { grid-template-columns: 1fr; }
+    .stage .arrow { display: none; }
+    .hero h1 { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+
+<nav id="nav">
+  <span class="brand">reqbank</span>
+  <a href="#arch">现状架构</a>
+  <a href="#market">竞争格局</a>
+  <a href="#bugs">存量问题</a>
+  <a href="#roadmap">Roadmap</a>
+  <a href="#strategy">战略要点</a>
+</nav>
+
+<div class="wrap">
+
+<header class="hero">
+  <h1>把 reqbank 做成<em>最强的契约执法引擎</em></h1>
+  <p class="lead">2026-08-24 两轮子代理调研的结论导览：4 路竞品扫描（40+ 项目）确认市场空位，5 路源码深研产出 28 项改进提案——顺带挖出了 9 个存量 bug。本页可交互浏览全部内容。</p>
+  <div class="stats">
+    <div class="stat"><b>40+</b><span>竞品项目扫描</span></div>
+    <div class="stat"><b>5</b><span>源码深研维度</span></div>
+    <div class="stat warn"><b>9</b><span>存量 bug（3 个必修）</span></div>
+    <div class="stat"><b>28</b><span>改进提案</span></div>
+    <div class="stat"><b>P0–P4</b><span>五个阶段</span></div>
+  </div>
+</header>
+
+<!-- ================= arch ================= -->
+<section id="arch">
+  <h2><span class="num">01</span>现状架构：一个回合的生命周期</h2>
+  <p class="sub">点击任意阶段查看它做什么、关键文件、以及深研发现的局限。这是理解后面所有改进的底图。</p>
+  <div class="pipe" id="pipe"></div>
+  <div class="detail" id="stageDetail"></div>
+  <div class="truthbar">
+    <span>支撑设施：</span>
+    <span class="chip">.agentdoc/harness/ 纯 Markdown 真源</span>
+    <span class="chip">learning-log.jsonl 全事件审计</span>
+    <span class="chip">CLI: scope / check / verify / report / impact</span>
+    <span class="chip">可选: LLM critic · .mex 图谱</span>
+  </div>
+</section>
+
+<!-- ================= market ================= -->
+<section id="market">
+  <h2><span class="num">02</span>竞争格局：三条赛道中间的空位</h2>
+  <p class="sub">40+ 个项目分属三条成熟赛道，无一同时占齐 reqbank 的四件套。点击卡片看它缺什么。</p>
+  <div class="tracks">
+    <div class="track t1"><h4>① Spec 生成瀑布流</h4><p>一次性生成规格再实现，规格随 feature 翻篇，非常驻执法。</p><div class="ex">spec-kit · gsd(64.6k) · cc-sdd · spec-workflow-mcp</div></div>
+    <div class="track t2"><h4>② 过程记忆</h4><p>记 agent 做过什么、偏好什么；语义向量召回，只注入不执法。</p><div class="ex">agentmemory(27.3k) · ai-memory · claude-mem · mem0</div></div>
+    <div class="track t3"><h4>③ 安全政策执法</h4><p>Rego/规则引擎管工具调用红线，面向安全运维而非业务契约。</p><div class="ex">cupcake · cc-safety-net · probity · warrant-mcp</div></div>
+  </div>
+  <div class="vacancy">
+    <b>◆ 空位 = reqbank 的四件套：</b>结构化 REQ/TC 条目（纯 Markdown 真源）＋ 每回合按路径/标签召回注入 ＋ diff 对照条款 critic ＋ Stop 确定性硬拦截 ＋ 多 agent 通用。<b>窗口判断：</b>最像的竞品都在上升期（agent-spec 447★、FredAntB HN 公测、saguaro 同格子先占），6–12 个月内空位可能被填，叙事占位宜早。
+  </div>
+  <div class="comps" id="comps"></div>
+</section>
+
+<!-- ================= bugs ================= -->
+<section id="bugs">
+  <h2><span class="num">03</span>深研意外发现：9 个存量问题</h2>
+  <p class="sub">子代理读源码时逐文件核实的问题（含 文件:行号）。点击卡片展开影响与修复计划。红色三个是纯 bug，P0 就该修。<b style="color:var(--green)">已验证 9/9：4 个引擎实测复现 + 5 个逐行源码核实。</b></p>
+  <div class="filters" id="bugFilters"></div>
+  <div class="buglist" id="bugList"></div>
+</section>
+
+<!-- ================= roadmap ================= -->
+<section id="roadmap">
+  <h2><span class="num">04</span>Roadmap：从两层执法到四层执法</h2>
+  <p class="sub">切换阶段标签，看该阶段要交付什么；顶部的「四层执法」图会高亮本阶段补齐的层。</p>
+  <div class="layers" id="layers"></div>
+  <div class="phase-tabs" id="phaseTabs"></div>
+  <div class="phase-head" id="phaseHead"></div>
+  <div class="items" id="phaseItems"></div>
+</section>
+
+<!-- ================= strategy ================= -->
+<section id="strategy">
+  <h2><span class="num">05</span>三个战略要点</h2>
+  <p class="sub">所有提案背后的一贯逻辑。</p>
+  <div class="strats">
+    <div class="strat s1">
+      <h4>① 四层执法，竞品最全链</h4>
+      <p>落地后 reqbank 拥有 saguaro / agent-spec / cupcake 都没有的完整执法链。critic 核心已是纯函数（critic-prompt.mjs:139,163），只缺 CLI 入口。</p>
+      <div class="loop">PreToolUse deny（写前）<br>&darr; PostToolUse critic（编辑后）<br>&darr; Stop 终态门（收尾·对盘上 diff 裁决）<br>&darr; gate（pre-commit / CI 同源）</div>
+    </div>
+    <div class="strat s2">
+      <h4>② 考古入金，常驻银行</h4>
+      <p>reversa 证明了「遗留系统→契约」的市场，但它是一次性框架。reqbank 做成 mine 首发 + reflect 持续回流，就是持续入金的银行。</p>
+      <div class="loop">mine 考古（git 历史/代码/存量计数）<br>&darr; inbox 草稿 → 人审入库<br>&darr; 钩子执法 → 违规/拦截落日志<br>&darr; reflect 聚合回流 → 新条款建议 ↺</div>
+    </div>
+    <div class="strat s3">
+      <h4>③ 两个免费卖点，锁死</h4>
+      <p><b>cache-stable：</b>确定性渲染（无时间戳、同输入同输出）天然不破 prompt cache——加 eval 断言防回归。</p>
+      <p><b>禁止类才可靠：</b>obsidian-mind 实证「正向『去查文档』常被忽略，禁止类指令才可靠传播」——这既是 P1 分层注入（禁止类正文直注）的依据，也该写进 README 论证 Stop 硬拦截的必要性。</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>数据来源：<a href="competitive-research-2026-08.md">docs/competitive-research-2026-08.md</a>（竞品四路检索）· <a href="roadmap.md">docs/roadmap.md</a>（五路深研汇总，含全部 文件:行号 引用）· 生成于 2026-08-24，star 数为当日快照。</p>
+</footer>
+
+</div>
+
+<script>
+/* ============ data ============ */
+const stages = [
+  {
+    evt: "SessionStart", nm: "会话初始化", fl: "session-init.mjs",
+    title: "会话开始：注入统计概览",
+    does: "新会话启动时读取真源，向上下文注入 2 行统计（模块数 / REQ 数），并记录会话基线日志。",
+    files: ["engine/session-init.mjs:29-32", "engine/lib/harness-store.mjs（真源解析）"],
+    limits: [
+      "注入只有 2 行统计，压缩（compaction）后重建的上下文里契约密度近乎为零 —— P1/P4 补 SessionStart 契约摘要与 PreCompact 钩子",
+      "没有任何「对抗上下文压缩」的产品化表述，机制其实在（每回合重注入）但没讲出来"
+    ]
+  },
+  {
+    evt: "UserPromptSubmit", nm: "每回合召回注入", fl: "recall.mjs",
+    title: "每条用户消息：按任务召回相关条款",
+    does: "classifyPromptKind 先分类（仅 implementation/verification/unknown 跑业务召回）；然后双路召回——路径优先（从 prompt 抽路径→glob 匹配模块，strong×10+weak 打分）、关键词兜底（CJK 2–4 字滑窗 + 字段权重）；global 条款保底一席；最终以 ID-first 列表注入 additionalContext。",
+    files: ["engine/recall.mjs:36-37（topK=3 硬编码）", "engine/lib/harness-store.mjs:504-606（recallByPaths）", "engine/lib/critic-prompt.mjs:11-20（formatRecallContext）"],
+    limits: [
+      "注入是纯 ID 列表，无条款正文、无行为指令 —— obsidian-mind 实证这类正向指示最容易被 agent 忽略 → P1 分层注入（禁止类正文直注）",
+      "无注入预算：无 cap、无截断协议、无 meter → P1 预算协议",
+      "eval 已实证的精度债：TC 的 V 命令守卫词把真被违反的 REQ 挤出 top3；双模块任务另一模块饿死 → P1 critic 去污染 + 模块配额",
+      "业务同义词（ratio/contribution/cutoff）硬编码在引擎里 → P1 移入真源「召回配置」节"
+    ]
+  },
+  {
+    evt: "PostToolUse", nm: "编辑后 critic", fl: "critic.mjs",
+    title: "每次编辑：diff 对照条款分类",
+    does: "从工具 payload 归一提取 diff 改动行（apply_patch / Claude structuredPatch 双通道）；按改动文件路径自主召回 REQ（仅 strong 命中，topK=3）；确定性分类器用「条款信号集 vs diff 三桶文本」的 n-gram 重叠 + 否定词判定 covered / weak / conflict；可选 LLM critic 复核「新增式违反禁止条款」盲区（fail-open）；仅 critical 注入反馈，全部写 learning-log 审计。",
+    files: ["engine/critic.mjs", "engine/lib/critic-prompt.mjs:139-159（分类器）", "engine/lib/llm-critic.mjs（可选 LLM 层）", "engine/lib/patch-diff.mjs:74-123（diff 归一）"],
+    limits: [
+      "conflict 只看「删除侧守卫词消失」：纯新增实施禁止行为不可见（只有开 LLM critic 才能抓）→ P2 断言层 forbid-add 确定性捕获",
+      "拆分编辑可绕过：守卫删除拆成 3 次小编辑，每次 removedHits<3 永不触发 → P2 断言层 + P1 终态裁决",
+      "非字母数字字符被替换成空格：JS 的 !user 变 user、&&→|| 翻转完全检测不到",
+      "LLM critic 顺序调用无缓存（最坏 +60s 钩子延迟）、单布尔输出无证据 → P2 升级四字段输出 + 子串回验 + 缓存",
+      "召回按文件路径：行为迁到未登记文件即脱离执法（.mex 图谱存在时部分缓解）"
+    ]
+  },
+  {
+    evt: "Stop", nm: "收尾拦截", fl: "finalize.mjs",
+    title: "回合收尾：确定性冲突硬拦截",
+    does: "回放本回合 learning-log：若最后一条 PostToolUse 事件的 critic_severity === 'critical'，则 output.decision = 'block' 并给出反馈（列出 conflict ID）；Stop payload 不可解析时 fail-closed。dirty 文件审计（baseline vs git 状态）只记日志不参与门。",
+    files: ["engine/finalize.mjs:48-81", "engine/lib/dirty-files.mjs:82-107（审计）"],
+    limits: [
+      "只看最后一条 critic 事件：先违规编辑→再做一次干净编辑→Stop 放行，违规改动还在盘上（B7）→ P1 终态裁决（对 git diff 重算）",
+      "拦截反馈是通用句式，不含条款正文、证据行、下一步正确做法 → P2 三段式反馈（条款引文/证据/Recovery）",
+      "TC 验证与执法链断裂：verify 只能手动跑，Stop 不执行 TC → P4 Stop 自动验证命中 TC"
+    ]
+  }
+];
+
+const competitors = [
+  { nm: "mesa-dot-dev/saguaro", st: "26★", d: "机制几乎逐点同构：规则 md+frontmatter、PreToolUse 注入、Stop 审 diff 违规阻断，同支持多 agent。同格子先占者。", miss: "面向团队 lint 规范，无 REQ/TC 业务契约语义、无标签化检索、无 TC 验证命令执行。" },
+  { nm: "ZhangHanDong/agent-spec", st: "447★", d: "功能最完整：REQ 条款 + EARS lint + 全确定性 gate + trace 三态追溯（honored/violated/unproven）+ pre-commit 硬拦。", miss: "执法时点在 commit/CI 而非每回合召回；契约按任务组织非全局常驻库；深度绑定 Rust 生态。" },
+  { nm: "modu-ai/moai-adk", st: "~1.2k★", d: "覆盖最重：SPEC 条目（GEARS）+ 钩子机械执法 TRUST 5 质量门 + trust-but-verify 重跑验证 + 漂移检测 MCP。", miss: "Go 单二进制 12-agent 编排的重量级 harness，锁定 Claude Code；reqbank 是轻量库 + 横向多代理。" },
+  { nm: "FredAntB/SDD", st: "147★", d: "REQ 语义最像：shall 语言 + 验收标准 + 「禁止实现未列出需求」宪法 + 67 静态断言 CI 门，HN 公测期正找用户。", miss: "只在生成期起作用，运行期靠 CLAUDE.md 自律：无钩子召回、无 diff critic、无收尾拦截。" },
+  { nm: "taniwhaai/arai", st: "7★", d: "「instruction 文件即政策」：自动从 CLAUDE.md 提取祈使句，tree-sitter + Aho-Corasick 热路径零 LLM，哈希链审计。", miss: "从散装规则自动提取，非人治理的 REQ/TC 真源；无 TC 验证；注入按工具调用匹配非每回合。" },
+  { nm: "skymanbp/cc-enforcer", st: "4★", d: "钩子布阵与 reqbank 一一对应：每回合重注入（明确以对抗上下文压缩为设计动机）+ PreToolUse DENY + Stop 九层完成声明审查。", miss: "规则是「反偷懒行为纪律」非业务契约；全量注入非标签召回；仅 Claude Code 完整支持。值得抄它的每回合重注入论证。" },
+  { nm: "pdewost/coding-constitution", st: "11★", d: "「无法执法的规则就不算规则」：ANCHOR/GUARDRAIL/COMPILE-GATE/CLOSEOUT-GATE，钩子机制逐点对应 reqbank。", miss: "管通用工程纪律非 REQ/TC；无标签召回、无验证命令；极小众。" },
+  { nm: "mrvladd-d/memobank", st: "54★", d: "概念组合几乎一一对应：requirements.md + constitution.md + spec-index + 确定性 mb-lint + /verify 验证门。", miss: "召回靠 slash 命令/AGENTS.md 自读：无钩子自动注入、无 diff 对照、无硬拦截。" }
+];
+
+const bugs = [
+  { id: "B1", sev: "crit", st: "正确性", t: "ID 正则三位数上限，第 1000 条起静默失效", loc: "harness-store.mjs:28,39,65,95 · verify.mjs:58",
+    d: "ID 正则写死 (G?REQ-\\d{3})，要求 3 位数字后紧跟空格+竖线/冒号——第 4 位数字使匹配直接失败，整行被静默跳过（实测：真源含 REQ-1000，loadAllRequirements 解析结果中不存在）。条目在文件里存在，但索引/澄清/用例全部召回不到，无任何报错。verify.mjs:58 的 /TC-\\d{3}$/ 同理漏收集 4 位 ID。", f: "P0：放宽为 \\d{3,}（S 级，一行修复四处 + verify 一处）。" },
+  { id: "B2", sev: "crit", st: "正确性", t: "文档示例与解析器段名漂移，照 README 写的 TC 解析为零条", loc: "harness-store.mjs:94（只认 ## 内容索引）vs README:76-79、llms.txt:51（示例用 ## 索引）",
+    d: "解析器只认 tests.md 的 ## 内容索引 段名，而 README 和 llms.txt 给用户的示例用的是 ## 索引。用户照官方文档写，TC 静默解析为零条——这本身就是「数据模型契约无自检」的铁证。", f: "P0：统一文档示例；解析器兼容双段名并对未知段名告警。" },
+  { id: "B3", sev: "crit", st: "正确性", t: "verify 注释宣称写 learning-log，实现缺失", loc: "verify.mjs:13（注释）—— 无任何 appendLog 调用",
+    d: "文件头注释承诺「逐条写 learning-log (event: verify)」，代码里没有实现。验证结果跑完即蒸发，无法回答「REQ-001 的 TC 上次何时验证、现在还绿吗」。", f: "P0：补 appendLog({event:'verify', tc, command, exit, duration})；P3 的 status 三态派生依赖它。" },
+  { id: "B4", sev: "silent", st: "静默失效", t: "transcript.mjs 是孤儿模块：写好了没接线", loc: "engine/lib/transcript.mjs:28-94",
+    d: "完整的 agent 会话转录 JSONL 工具调用解析器（readTranscriptToolCalls/hasTranscriptToolCall），但全仓 grep 无任何调用方——「从历史对话挖掘条款」有设计意图未实现。", f: "P4：reflect 违规回流时消费会话中的用户纠错发言（「不要用 message.error」类）作为条款候选证据。" },
+  { id: "B5", sev: "sem", st: "语义缺陷", t: "fatal 一律 exit 0：引擎崩溃 = 门禁通过", loc: "bin/harness.mjs:516-519 · verify.mjs:177-180",
+    d: "钩子场景的 fail-open 哲学（不能因引擎崩溃打断 agent）被原样带进 CLI/CI 场景：fatal 处理器 process.exit(0)。CI 眼里引擎崩溃等于检查通过。", f: "P2：HARNESS_GATE=1 环境下 fatal 改 exit 2；钩子场景保持 fail-open 不变。" },
+  { id: "B6", sev: "sem", st: "语义缺陷", t: "verify 在 CI（无 learning-log）静默空转通过", loc: "verify.mjs:123-126",
+    d: "verify 默认从 learning-log 找「最近有召回的回合」来选 TC。CI 上日志不存在（被 gitignore），于是静默打印「无命中 TC，无需执行」并 exit 0。", f: "P2：verify --all 直接全库枚举 TC 执行，不依赖本地日志。" },
+  { id: "B7", sev: "sem", st: "语义缺陷", t: "Stop 门只看最后一条 critic 事件，可被「先脏后净」绕过", loc: "finalize.mjs:51-52（criticEvents.at(-1)）",
+    d: "Stop 判定只回放本回合最后一条 PostToolUse 事件：先做一次违规编辑（critical），再做一次无关的干净编辑（ok），Stop 即放行——违规改动还留在盘上。", f: "P1：终态裁决——Stop 时对 baseline 以来变化的业务文件取 git diff，复用 classifyRecord 对盘上终态重算一遍。" },
+  { id: "B8", sev: "silent", st: "静默失效", t: "同文件重复 ID 经 indexMap.set 静默覆盖", loc: "harness-store.mjs:30,97",
+    d: "解析索引时对重复 ID 直接 set 覆盖，先出现的条目无声丢失，无任何告警。", f: "P0：改为先查后报 duplicate-id；并入 trace-integrity lint。" },
+  { id: "B9", sev: "silent", st: "静默失效", t: "根 index「已建模块」段不参与机器解析，与目录可无声漂移", loc: "templates/harness/index.md:18-20 · listModuleDirs 扫目录（harness-store.mjs:139-148）",
+    d: "根 index.md 的人工「已建模块」清单不参与解析，模块发现只扫目录。人工索引与目录实况漂移无人报告——文档腐化的温床。", f: "P1：trace-integrity lint 中加双向 diff（module-index-drift）。" }
+];
+
+const vMap = { B1: "已实测复现", B2: "已实测复现", B6: "已实测复现", B8: "已实测复现" };
+bugs.forEach((b) => { b.v = vMap[b.id] ?? "源码核实"; });
+
+const phases = [
+  {
+    id: "P0", theme: "正确性止血", ver: "patch 版", goal: "四个 S 级修复 + 一条防回归断言，一天可清完随 patch 发版。",
+    layers: [0, 1, 0, 0],
+    items: [
+      { t: "ID 正则放宽 \\d{3} → \\d{3,}", diff: "S", pri: "高", d: "修 B1。四处 ID 正则 + verify 回合匹配，第 1000 条起静默失效的硬伤。验收：REQ-1000/TC-1000 可解析可召回。", src: "深研：冷启动维度" },
+      { t: "段名统一 + 双段名兼容", diff: "S", pri: "高", d: "修 B2。README/llms.txt 示例改为 ## 内容索引；解析器兼容旧段名、未知段名告警。验收：照 README 示例字面贴入能解析出 TC。", src: "深研：数据模型维度" },
+      { t: "verify 补 learning-log 写入", diff: "S", pri: "高", d: "修 B3。每条命令执行后 appendLog({event:'verify', ...})，兑现文件头注释承诺；P3 的 status 派生依赖它。", src: "深研：数据模型 + 冷启动（两路独立发现）" },
+      { t: "重复 ID 检测报错", diff: "S", pri: "高", d: "修 B8。indexMap.set 改为先查后报 duplicate-id。", src: "深研：数据模型维度" },
+      { t: "cache-stable eval 断言", diff: "S", pri: "中", d: "锁死免费卖点：同 payload 两次运行 additionalContext 逐字节一致，防止未来加时间戳/动态内容无声破坏 prompt cache。", src: "对标 magic-context（它要工程才能做到，reqbank 天然就有）" }
+    ]
+  },
+  {
+    id: "P1", theme: "执法无洞、召回可信", ver: "minor", goal: "堵 Stop 绕过洞；机械化铁律②；建立注入预算与分层协议；清偿 eval 已实证的召回精度债。",
+    layers: [0, 1, 2, 0],
+    items: [
+      { t: "Stop 终态裁决", diff: "M", pri: "高", d: "修 B7。Stop 时对 baseline 以来变化的业务文件取 git diff 删除行，复用 classifyRecord 对盘上终态重算；日志回放降为辅助信号。验收：违规→干净编辑→Stop 仍 block；git checkout 撤销后放行。", src: "对标 agent-spec guard --change-scope（对变更集而非事件流裁决）、cc-enforcer「声明对照盘上 mtime」" },
+      { t: "trace-integrity lint", diff: "S", pri: "高", d: "悬挂 TC 引用 / REQ↔TC 双向不对称 / 无 TC 的 REQ（铁律②从未机械化！）/ 重复 ID / 段名契约 / 根索引与目录双向 diff（修 B9）。", src: "对标 doorstop integrity、agent-spec dangling satisfies、rtmx health" },
+      { t: "注入预算协议", diff: "S", pri: "高", d: "OUTPUT_CAP=10000 公开常量；header 永远第一行（自定位 + 截断存活指引）；超限按整条 REQ 边界省略留指针（半个条文读起来像完整指令，比整条省略更危险）；末行 meter 报告真实大小。", src: "对标 cc-enforcer OUTPUT_CAP / obsidian-mind「a silent loss is worse than the bloat」" },
+      { t: "分层注入：禁止类条款正文直注", diff: "S-M", pri: "高", d: "命中的含否定信号 REQ 直接注入 clarification 正文（L0 层，上限默认 3 条），其余维持 ID-first（L1）+ scope 指针（L2）。把「禁止语义可靠传播」的实证用在对的层。", src: "obsidian-mind 实证：正向「去查文档」零遵从、禁止类指令才可靠传播" },
+      { t: "critic 通道去污染 + 模块配额", diff: "M", pri: "高", d: "修 eval/FINDINGS 两个已实证漏召：① critic 召回改 req-only（TC 仅在判 conflict 后补充）——「删 REQ-006 守卫的 diff 召回的却是 REQ-005」；② topK 改每模块配额 2 + global 保底 1——双模块任务不再饿死；③ 业务同义词从引擎硬编码移入真源「召回配置」节。", src: "对标 ai-nexus 只注入命中子集 / agent-os「Don't overwhelm」" }
+    ]
+  },
+  {
+    id: "P2", theme: "条款可执行化 + CI 同源", ver: "minor", goal: "one engine, one verdict：断言层 + 写前拦截 + gate 装配，兑现 README 的「CI 门禁补偿」承诺。",
+    layers: [2, 1, 1, 2],
+    items: [
+      { t: "条款断言层", diff: "M", pri: "高", d: "requirements.md 可选 ## 断言 节：REQ-001 | no-delete|forbid-add|forbid-path | pattern（封闭类型）。critic 在 n-gram 分类器之前跑断言匹配，classification 归因 {id, assertion, matched-line}。确定性捕获「新增式违反」——今天只有开 LLM critic 才能抓的场景，零 API 调用。check 对「含否定信号但无断言」的 REQ 报 compile-weak。", src: "对标 warrant-mcp「模型编译、代码裁决、模糊即拒」（软化为警告保持渐进采用）" },
+      { t: "PreToolUse 前置拦截", diff: "M", pri: "高", d: "pre-critic.mjs 对 Edit/Write 的 old/new_string 跑断言匹配，命中即 permissionDecision: deny，消息含条款 id + 断言 + 下一步。无断言条款走既有 PostToolUse 通道，Grok 降级模式不变。", src: "对标 probity「intercept before it happens」 / arai PreToolUse true deny" },
+      { t: "gate 子命令（CI 判决入口）", diff: "M", pri: "高", d: "reqbank gate --staged|--base <ref>：复用 recallByPaths + runCriticReview 纯函数链（与钩子同一份代码），exit 1 当且仅当确定性 conflict。顺带修 B5（HARNESS_GATE=1 下 fatal exit 2）与 B6（verify --all 不依赖日志）。", src: "对标 BULDEE「CI sources the same rules engine as the hooks」 / saguaro review --base" },
+      { t: "init --gate 一键装配", diff: "S", pri: "高", d: "幂等渲染 .git/hooks/pre-commit + .github/workflows/reqbank-gate.yml（check --strict → gate --base → verify --all）。README 从「建议配合 CI 门禁补偿」改为「init --gate 一键装配」。", src: "对标 agent-spec install-hooks / saguaro pre-push" },
+      { t: "LLM critic 升级：证据 + 回验 + 缓存", diff: "S-M", pri: "高", d: "输出四字段 {violation, clause_quote, diff_quote, next_step}；quote 做子串回验（模型幻觉结构上到不了决策路径）；.agentdoc/harness/cache/ 按 sha256(req-id+diff) 缓存；注入升级三段式（条款引文/证据行/Recovery 下一步）。验收：同 diff 二次触发 LLM 调用数为 0。", src: "对标 probity「下一步合法动作」 / cc-enforcer Recovery 段 / warrant 归因到条款" }
+    ]
+  },
+  {
+    id: "P3", theme: "银行账目：生命周期与追溯", ver: "minor", goal: "条目可演进（superseded）、来源可信（置信度）、验证可查（status 派生）、报告可运营（终态矩阵 + 棘轮）。",
+    layers: [1, 1, 1, 1],
+    items: [
+      { t: "生命周期状态机 active/superseded", diff: "M", pri: "高", d: "索引行可选第 5 列 | active|draft|superseded>REQ-009，旧 4 列默认 active 零迁移；非 active 不参与召回/执法；取代链查环；reqbank status 汇总分布。旧契约退役不再靠手删或矛盾 lint 碰运气。", src: "对标 total-recall [superseded] 永不删除 / agent-spec transition / doorstop active" },
+      { t: "置信度标注 + confirm 人审", diff: "S-M", pri: "高", d: "可选第 5 列 confirmed|inferred|gap（缺省 confirmed 向后兼容）；reqbank confirm <id> 幂等升级；置信度只驱动人审队列不参与执法。解「文档理想 ≠ 代码现状」沉淀坑（eval 实证：AGENTS.md 说禁止 message.error，存量实际 27 处）。", src: "对标 reversa 🟢🟡🔴 三色置信度 / FredAntB [TO VERIFY]" },
+      { t: "verify 回写 + status 三态派生", diff: "M", pri: "高", d: "从 learning-log 聚合每 TC/REQ 的最近验证事件，派生 verified/unproven/stale/violated（REQ 取其 TC 最差值）；状态永不写回真源——每次从日志重算。", src: "对标 agent-spec「liveness recomputed, never stored」 / rtmx 状态由测试结果派生" },
+      { t: "漂移检测", diff: "S-M", pri: "中", d: "命中路径 glob 零匹配 → dead-path 警告（条款变僵尸）；根索引已建模块与目录双向 diff；补 ** 跨目录 glob 语义。", src: "对标 OpenLore（README 参考生态列了却没吸收）/ mex check" },
+      { t: "report 2.0：终态矩阵 + 整改率 + 快照棘轮", diff: "S-M", pri: "中", d: "① REQ 终态矩阵（conflict/covered/weak/never-seen——诚实暴露「沉淀了但从未被执法」的条款）；② --by-req 合规统计 + block 整改率 + dead-rule 清单；③ 召回质量（策略分布、召回闭环率 = prompt 召回 ∩ diff 召回、执法消费率）；④ --snapshot 棘轮：快照进版本库，CI 比对不匹配 exit 1——度量本身成为门禁。", src: "对标 duvet snapshot 棘轮 / arai stats --by-rule / agent-spec 三态" },
+      { t: "门禁分级、内联抑制、冻结基线", diff: "M", pri: "中", d: "条款级 | warn 后缀（默认 block 语义不变）；// reqbank-ignore: <id> 内联抑制且必须 counted 进 report；gate --freeze 存量冻结（存量只 warn、新增照 block）。硬门禁的误报出口，防止门禁被误报逼到整体关掉。", src: "对标 cupcake 五态 / BULDEE「documented, counted suppression」 / OpenLore frozen" }
+    ]
+  },
+  {
+    id: "P4", theme: "考古入金：冷启动与规模化", ver: "major 叙事", goal: "把「手工银行」升级为「持续入金的银行」：mine 首发 + reflect 回流；千条规模的性能与日志治理。",
+    layers: [1, 1, 2, 1],
+    items: [
+      { t: "reqbank mine 冷启动挖掘", diff: "L", pri: "高", d: "确定性层（默认无 LLM）：git log --grep 修复主题、热点文件、AGENTS.md/README 约定段、TODO/FIXME、存量用法计数（「存量封顶、增量防护」句式）；LLM 增强层可选起草；候选一律写 inbox/ 草稿区，人审后入库，按领域分批。mine 永不直接写 modules/。", src: "对标 agent-os discover-standards 六步考古 / reversa 五阶段管道 + 断点续跑" },
+      { t: "reflect 违规→条款回流", diff: "M", pri: "高", d: "Stop block 时向 inbox 追加冲突事件卡（条款 ID + diff 摘要 + turn_id）；reflect 聚合重复模式生成条款建议（「条款 X 30 天违规 3 次：建议把守卫写成 TC 的 V 命令」「路径 12 次改动零召回：建议登记模块」）；顺带接线孤儿模块 transcript.mjs（B4）消费会话纠错发言。", src: "对标 mex check/sync 修复回路 / reversa Emendas 增补节" },
+      { t: "检索缓存 + 可选倒排索引", diff: "M", pri: "高", d: "进程内 mtime 缓存（现状：一次 PostToolUse = 两层全库扫描）；可选 .index.json（tag→条款、路径→模块），mtime 指纹校验、可随时重建——保持「真源是唯一事实」。验收：1000 条真源 scope 耗时降至首扫 1/5 内。", src: "对标 mex 确定性本地索引 / ai-nexus 离线路由" },
+      { t: "learning-log 轮转 + 增量读", diff: "M", pri: "中", d: "字节偏移增量读（append-only 安全），超 5MB 轮转。修「每次 Stop/critic 全量重读 JSONL」。", src: "深研：冷启动维度" },
+      { t: "沉淀引导向导", diff: "S", pri: "中", d: "templates/agent-guide.md 起草协议：先扫存量用法 → 逐条问三个问题（一次一条不批量）→ 起草 REQ+TC → scope/check 自验 → 登记。零引擎改动。", src: "对标 agent-os「问 why 不批量」 / FredAntB 四问面试 / memobank 分层引导" },
+      { t: "Stop 自动验证命中 TC", diff: "M-L", pri: "中高", d: "Stop 对判 conflict 的 REQ 自动执行关联 TC 的 V 命令（复用 verify 的破坏性命令 fail-closed 拒绝与超时包装）：TC 失败 → block 引用 TC id；TC 通过 → 降级 warning 附人工确认提示。命令执行风险边界保守设计。", src: "对标 agent-spec lifecycle 场景执行作为门" }
+    ]
+  }
+];
+
+const layerDefs = [
+  { n: "L1", t: "PreToolUse deny", s: "写前拦截", key: 0 },
+  { n: "L2", t: "PostToolUse critic", s: "编辑后对照", key: 1 },
+  { n: "L3", t: "Stop 终态门", s: "收尾拦截", key: 2 },
+  { n: "L4", t: "gate 同源", s: "pre-commit/CI", key: 3 }
+];
+
+/* ============ render ============ */
+const $ = id => document.getElementById(id);
+
+// pipeline
+const pipeEl = $("pipe");
+stages.forEach((s, i) => {
+  const d = document.createElement("div");
+  d.className = "stage" + (i === 0 ? " sel" : "");
+  d.innerHTML = `<div class="evt">${s.evt}</div><div class="nm">${s.nm}</div><div class="fl">${s.fl}</div><span class="arrow">→</span>`;
+  d.onclick = () => {
+    document.querySelectorAll(".stage").forEach(x => x.classList.remove("sel"));
+    d.classList.add("sel");
+    renderStage(i);
+  };
+  pipeEl.appendChild(d);
+});
+function renderStage(i) {
+  const s = stages[i];
+  $("stageDetail").innerHTML = `
+    <h3>${s.evt} — ${s.title}</h3>
+    <div class="lbl">做什么</div><p>${s.does}</p>
+    <div class="lbl">关键文件</div>
+    <p>${s.files.map(f => `<span class="code">${f}</span>`).join(" ")}</p>
+    <div class="lbl">深研发现的局限（对应 Roadmap 提案）</div>
+    <ul>${s.limits.map(l => `<li>${l}</li>`).join("")}</ul>`;
+}
+renderStage(0);
+
+// competitors
+const compEl = $("comps");
+competitors.forEach(c => {
+  const d = document.createElement("div");
+  d.className = "comp";
+  d.innerHTML = `<div class="top"><span class="nm">${c.nm}</span><span class="stars">${c.st}</span></div>
+    <div class="desc">${c.d}</div>
+    <div class="miss"><b>它缺什么：</b>${c.miss}</div>
+    <div class="hint">点击展开 ↓</div>`;
+  d.onclick = () => d.classList.toggle("open");
+  compEl.appendChild(d);
+});
+
+// bugs
+const sevMap = { crit: ["sev-crit", "正确性"], sem: ["sev-sem", "语义缺陷"], silent: ["sev-silent", "静默失效"] };
+let bugFilter = "all";
+const filters = [["all", "全部 9"], ["crit", "正确性 3"], ["sem", "语义缺陷 3"], ["silent", "静默失效 3"]];
+const fWrap = $("bugFilters");
+filters.forEach(([k, label]) => {
+  const b = document.createElement("button");
+  b.className = "fbtn" + (k === "all" ? " on" : "");
+  b.textContent = label;
+  b.onclick = () => {
+    bugFilter = k;
+    document.querySelectorAll(".fbtn").forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    renderBugs();
+  };
+  fWrap.appendChild(b);
+});
+function renderBugs() {
+  const list = $("bugList");
+  list.innerHTML = "";
+  bugs.filter(b => bugFilter === "all" || b.sev === bugFilter).forEach(b => {
+    const d = document.createElement("div");
+    d.className = "bug " + sevMap[b.sev][0];
+    d.innerHTML = `<div class="row1"><span class="bid">${b.id}</span><span class="bt">${b.t}</span><span class="vtag">${b.v}</span><span class="sevtag">${b.st}</span></div>
+      <div class="loc">${b.loc}</div>
+      <div class="more"><p>${b.d}</p><div class="fix">▸ ${b.f}</div></div>`;
+    d.onclick = () => d.classList.toggle("open");
+    list.appendChild(d);
+  });
+}
+renderBugs();
+
+// roadmap
+let curPhase = 0;
+const tabs = $("phaseTabs");
+phases.forEach((p, i) => {
+  const b = document.createElement("button");
+  b.className = "ptab" + (i === 0 ? " on" : "");
+  b.innerHTML = `<b>${p.id}</b>${p.theme}`;
+  b.onclick = () => { curPhase = i; document.querySelectorAll(".ptab").forEach(x => x.classList.remove("on")); b.classList.add("on"); renderPhase(); };
+  tabs.appendChild(b);
+});
+function renderLayers() {
+  const wrap = $("layers");
+  wrap.innerHTML = "";
+  const states = { 0: ["none", "✗ 未有"], 1: ["has", "✓ 已有"], 2: ["hole", "⚠ 有洞"] };
+  layerDefs.forEach((l, i) => {
+    const cur = i === 0 ? 0 : (i === 1 ? 1 : (i === 2 ? 2 : 0)); // 现状：L1 无、L2 有、L3 有洞、L4 无
+    const phaseMark = phases[curPhase].layers[i];
+    const [cls, sym] = states[cur];
+    const d = document.createElement("div");
+    d.className = "layer " + cls + (phaseMark === 2 ? " hl" : "");
+    const mark = phaseMark === 2 ? (cur === 2 ? "本阶段修复" : "本阶段新增") : (phaseMark === 1 ? "本阶段增强" : "");
+    d.innerHTML = `<div class="ln">${l.n}</div><div class="lt">${l.t}</div><div class="ls">${sym} ${l.s}</div>${mark ? `<div style="font-size:11px;color:var(--cyan);margin-top:5px">◆ ${mark}</div>` : ""}`;
+    wrap.appendChild(d);
+  });
+}
+function renderPhase() {
+  const p = phases[curPhase];
+  $("phaseHead").innerHTML = `<h3>${p.id} · ${p.theme} <span style="color:var(--dim);font-size:13px;font-family:var(--mono)">（${p.ver}）</span></h3><p>${p.goal}</p>`;
+  const box = $("phaseItems");
+  box.innerHTML = "";
+  p.items.forEach(it => {
+    const d = document.createElement("div");
+    d.className = "item";
+    d.innerHTML = `<div class="r1"><span class="it">${it.t}</span><span class="meta m-${it.diff}">${it.diff}</span><span class="meta m-${it.pri === "高" ? "hi" : "md"}">优先级 ${it.pri}</span></div>
+      <div class="desc">${it.d}<span class="src"><b>借鉴</b> ${it.src}</span></div>`;
+    d.onclick = () => d.classList.toggle("open");
+    box.appendChild(d);
+  });
+  renderLayers();
+}
+renderPhase();
+
+// nav active
+const secs = [...document.querySelectorAll("section")];
+const links = [...document.querySelectorAll("nav a")];
+window.addEventListener("scroll", () => {
+  let idx = 0;
+  secs.forEach((s, i) => { if (s.getBoundingClientRect().top < 120) idx = i; });
+  links.forEach((l, i) => l.classList.toggle("active", i === idx));
+}, { passive: true });
+</script>
+</body>
+</html>
