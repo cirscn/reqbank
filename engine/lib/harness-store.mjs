@@ -345,6 +345,12 @@ export const loadAllRequirements = ({ includeInactive = false } = {}) => {
   return includeInactive ? records : records.filter((record) => record.status === 'active');
 };
 
+// P5 验收发现的执法漏洞修复：断言是闭集确定性规则（字符串预筛，每条成本极低），
+// 不应被路径召回预算门控——forbid-call 挂在 request 模块条款上时，hooks 模块文件的
+// 违规调用此前因召回不到而完全绕过。断言层全库扫描，n-gram 分类维持召回域不变。
+export const loadAssertionBearers = () =>
+  loadAllRequirements().filter((record) => (record.assertions ?? []).length > 0);
+
 export const loadAllTests = ({ includeInactive = false } = {}) => {
   const records = parseTests(join(harnessRoot(), 'global', 'tests.md'), 'global');
   for (const moduleDir of listModuleDirs()) {

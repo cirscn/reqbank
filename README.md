@@ -131,7 +131,7 @@ requirements.md 可选 `## 断言` 节，行格式 `REQ-001 | no-delete|forbid-a
 ### 语法感知层（P5：标点翻转 + tree-sitter WASM）
 
 - **标点翻转判定（全语言，零依赖）**：`user && active` 被改成 `!user || active` 这类极性/连接符翻转是 n-gram 的结构性盲区——token 集完全对称。引擎现从原始 diff 提取布尔三元组，同操作数下 `&&↔||` 或裸/取反互换即判确定性 conflict（操作数交换等价改写不误报）。
-- **结构化断言（JS/TS/TSX/Java/Python/Go/Rust）**：`forbid-call` 只拦 AST 确认的真实调用点——注释和字符串里的提及不误报；`no-negate` 拦截守卫标识符被取反（`!x` / `not x`）。实现为 vendored tree-sitter WASM（~800KB 静态资产，brotli 压缩语法包懒加载，零 npm 运行时依赖，Node 22 内置 WASM 引擎全平台）。字符串预筛不命中的回合零解析成本；无语法包语言退回字符串层照拦。`reqbank check --vendor` 校验资产完整性（sha256 对照 `engine/vendor/tree-sitter/VENDOR.json`）。
+- **结构化断言（JS/TS/TSX/Java/Python/Go/Rust）**：`forbid-call` 只拦 AST 确认的真实调用点——注释和字符串里的提及不误报；`no-negate` 拦截守卫标识符被取反（`!x` / `not x`）。断言层**全库扫描**（召回集 ∪ 全部带断言条款）：断言是闭集确定性规则，不受路径召回预算门控——A 模块条款的断言对 B 模块文件的违规同样生效；n-gram 语义分类仍限于召回域。实现为 vendored tree-sitter WASM（~800KB 静态资产，brotli 压缩语法包懒加载，零 npm 运行时依赖，Node 22 内置 WASM 引擎全平台）。字符串预筛不命中的回合零解析成本；无语法包语言退回字符串层照拦。`reqbank check --vendor` 校验资产完整性（sha256 对照 `engine/vendor/tree-sitter/VENDOR.json`）。
 - **语言扩展**：`reqbank lang add kotlin --ext .kt` 按需下载语法包到 `.agentdoc/harness/vendor-lang/`（随仓库共享给协作者）；`lang list` / `lang remove` 管理。YAML/JSON/HTML/CSS 等声明式配置明确不做 AST——字符串断言层即正确工具。
 
 ### 条款生命周期与置信度（索引第 5 列）

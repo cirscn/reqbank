@@ -12,9 +12,9 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { extractKeywords, matchPathPattern, recallByPaths } from './lib/harness-store.mjs';
+import { extractKeywords, loadAssertionBearers, matchPathPattern, recallByPaths } from './lib/harness-store.mjs';
 import { runCriticReview } from './lib/critic-prompt.mjs';
-import { runAssertionReview } from './lib/assertions.mjs';
+import { mergeAssertionPool, runAssertionReview } from './lib/assertions.mjs';
 import { getBusinessFileUnifiedDiff, isBusinessFile } from './lib/dirty-files.mjs';
 import { getProjectRoot, repoPath } from './lib/repo-paths.mjs';
 import { appendLog } from './lib/learning-log.mjs';
@@ -66,6 +66,7 @@ const main = async () => {
   }
 
   const files = changedFilesFor(mode, baseRef);
+  const assertionBearers = loadAssertionBearers(); // 循环外一次：避免每文件全库重解析
   const conflicts = [];
   for (const file of files) {
     const diff = diffFor(file, mode, baseRef);
@@ -80,7 +81,12 @@ const main = async () => {
     if (!recalled.length) {
       continue;
     }
-    const assertionHits = await runAssertionReview({ diff, filePaths: [file], recalledReqs: recalled, matchPathPattern });
+    const assertionHits = await runAssertionReview({
+      diff,
+      filePaths: [file],
+      recalledReqs: mergeAssertionPool(recalled, assertionBearers),
+      matchPathPattern
+    });
     for (const hit of assertionHits) {
       conflicts.push({
         id: `${hit.record.scope}:${hit.record.id}`,

@@ -2,8 +2,8 @@
 // PostToolUse hook on apply_patch: classify changed-file related REQ/TC as
 // covered / weak / conflict and inject context only for deterministic conflicts.
 
-import { extractKeywords, matchPathPattern, recallByPaths } from './lib/harness-store.mjs';
-import { runAssertionReview, ASSERTION_FEEDBACK } from './lib/assertions.mjs';
+import { extractKeywords, loadAssertionBearers, matchPathPattern, recallByPaths } from './lib/harness-store.mjs';
+import { mergeAssertionPool, runAssertionReview, ASSERTION_FEEDBACK } from './lib/assertions.mjs';
 import { formatCriticVerdict, runCriticReview, selectProhibitionCandidates } from './lib/critic-prompt.mjs';
 import { applyLlmCritic } from './lib/llm-critic.mjs';
 import { appendLog, appendPayloadSample, findEventsByTurn, parseHookPayload, readHookStdin } from './lib/learning-log.mjs';
@@ -107,7 +107,13 @@ const main = async () => {
   }
 
   // 断言层在 n-gram 分类器之前：闭集规则匹配，命中即确定性 conflict（含归因）
-  const assertionHits = await runAssertionReview({ diff, filePaths, recalledReqs, matchPathPattern });
+  // P5：断言池 = 召回集 ∪ 全库断言承载条款——跨模块违规不再依赖路径召回
+  const assertionHits = await runAssertionReview({
+    diff,
+    filePaths,
+    recalledReqs: mergeAssertionPool(recalledReqs, loadAssertionBearers()),
+    matchPathPattern
+  });
 
   let verdict = runCriticReview({ diff, recalledReqs });
   if (assertionHits.length) {

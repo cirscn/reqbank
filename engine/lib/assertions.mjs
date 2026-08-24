@@ -43,6 +43,23 @@ const negationPrefilter = (line, pattern) =>
 const STRUCTURAL_KINDS = new Set(['forbid-call', 'no-negate']);
 
 /**
+ * 断言池合并：召回集 ∪ 全库断言承载条款（按 scope:id 去重，召回集优先）。
+ * 断言层全库扫描（闭集规则，预筛极廉价）；n-gram 分类仍只用召回集。
+ */
+export const mergeAssertionPool = (recalledReqs, bearers = []) => {
+  const seen = new Set((recalledReqs ?? []).map((record) => `${record.scope}:${record.id}`));
+  const pool = [...(recalledReqs ?? [])];
+  for (const record of bearers ?? []) {
+    const key = `${record.scope}:${record.id}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      pool.push(record);
+    }
+  }
+  return pool;
+};
+
+/**
  * 对召回的 REQ 逐条跑断言匹配。
  * 返回 [{ record, kind, pattern, matchedLine, file }]——命中即确定性 conflict（零 LLM、零 API）。
  * P5 起为 async：结构化断言需异步加载语法包（懒加载，仅预筛命中才发生）。
@@ -102,9 +119,12 @@ export const runAssertionReview = async ({ diff, filePaths = [], recalledReqs = 
   for (const { record, assertion, line } of structuralCandidates) {
     let hit = true; // 无语法包 / vendor 缺失 → 字符串命中保留
     if (analysis && !analysis.hasError) {
-      // 干净解析才允许推翻：AST 里没有真实调用/取反，说明命中的是注释或字符串提及
+      // 干净解析才允许推翻：AST 里没有真实调用/取反，说明命中的是注释或字符串提及。
+      // 成员式 pattern（message.error）与提取的尾段名（error）需两侧对齐：
+      //   调用侧取尾段比对 pattern 尾段；pattern 全文命中调用全文（calls 存尾段，通常走前者）
       if (assertion.kind === 'forbid-call') {
-        hit = analysis.calls.includes(assertion.pattern);
+        const patternTail = assertion.pattern.includes('.') ? assertion.pattern.split('.').pop() : assertion.pattern;
+        hit = analysis.calls.includes(assertion.pattern) || analysis.calls.includes(patternTail);
       } else {
         hit = analysis.negations.includes(assertion.pattern);
       }

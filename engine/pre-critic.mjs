@@ -5,8 +5,8 @@
 // 无断言命中时输出空 JSON 退出（快路径，无网络、无 LLM）。
 // 注意：Codex 协议无 PreToolUse 事件，本层仅 Claude 适配器注册（能力矩阵如实标注）。
 
-import { matchPathPattern, recallByPaths } from './lib/harness-store.mjs';
-import { runAssertionReview, ASSERTION_FEEDBACK } from './lib/assertions.mjs';
+import { loadAssertionBearers, matchPathPattern, recallByPaths } from './lib/harness-store.mjs';
+import { ASSERTION_FEEDBACK, mergeAssertionPool, runAssertionReview } from './lib/assertions.mjs';
 import { appendLog, appendPayloadSample, parseHookPayload, readHookStdin } from './lib/learning-log.mjs';
 import { normalizeChangedFilePath, normalizeClaudeCodeEdit } from './lib/patch-diff.mjs';
 
@@ -39,7 +39,12 @@ const main = async () => {
   const filePaths = claudeEdit.filePaths.map((filePath) => normalizeChangedFilePath(filePath, { cwd: input.cwd ?? '' }));
   const diff = claudeEdit.text;
   const recalledReqs = recallByPaths(filePaths, { recordKind: 'req-only', moduleQuota: 2 });
-  const hits = await runAssertionReview({ diff, filePaths, recalledReqs, matchPathPattern });
+  const hits = await runAssertionReview({
+    diff,
+    filePaths,
+    recalledReqs: mergeAssertionPool(recalledReqs, loadAssertionBearers()),
+    matchPathPattern
+  });
 
   const denied = hits.length > 0;
   const output = denied

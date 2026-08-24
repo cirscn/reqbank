@@ -380,13 +380,13 @@ t('F05', 'F-critic钩子', '否定词整词边界回归：notification 不劫持
   ok(record.critic_severity !== 'critical', `notification substring hijack: severity=${record.critic_severity}`);
   ok(record.conflict_ids.length === 0, `conflicts=${record.conflict_ids}`);
 });
+// P5 后 REQ-006 编译了 no-delete|isMessageHandledError：删该 token 的 diff 由断言层
+// 确定性拦截（不再走 n-gram 抵消路径）。此处改删无断言守卫词，保住抵消语义的回归覆盖。
 t('F06', 'F-critic钩子', '新增含 must not 守卫词可抵消删除侧冲突', () => {
   const diff = patch('src/shared/request/agent.ts', [
-    '  if (isMessageHandledError(error)) {',
-    '    return;',
-    '  }',
     '  error.skipMessage = true;',
-    '  error.businessMessageShown = true;'
+    '  error.businessMessageShown = true;',
+    '  throw toRequestError(error);'
   ], ['  // must not duplicate the notice display']);
   criticHook(diff, `t-${RUN}-t-f06`);
   const record = lastLog('PostToolUse', (e) => e.turn_id === `t-${RUN}-t-f06`);

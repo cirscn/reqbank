@@ -4,9 +4,9 @@
 
 import { spawnSync } from 'node:child_process';
 import { getBusinessFileUnifiedDiff, getDirtyBusinessFileChangesSinceBaseline } from './lib/dirty-files.mjs';
-import { extractKeywords, matchPathPattern, loadAllRequirements, loadAllTests, recallByPaths } from './lib/harness-store.mjs';
+import { extractKeywords, loadAssertionBearers, matchPathPattern, loadAllRequirements, loadAllTests, recallByPaths } from './lib/harness-store.mjs';
 import { formatFinalizeFeedback, runCriticReview } from './lib/critic-prompt.mjs';
-import { runAssertionReview } from './lib/assertions.mjs';
+import { mergeAssertionPool, runAssertionReview } from './lib/assertions.mjs';
 import { extractCommands, findUnsafe, tcShell } from './lib/tc-exec.mjs';
 import { getProjectRoot } from './lib/repo-paths.mjs';
 import { appendLog, appendPayloadSample, findEventsByTurn, parseHookPayload, readHookStdin } from './lib/learning-log.mjs';
@@ -78,6 +78,7 @@ const main = async () => {
   // newFiles 一并纳入：对 baseline 而言"新出现"的脏文件，可能是刚提交过的文件被改（无 critic 事件也要裁决）；
   // 真正的新建文件 git diff 为空，自然跳过。
   const terminalFiles = [...new Set([...changedExistingBusinessFiles, ...newBusinessFiles])];
+  const assertionBearers = auditDirtyFiles && terminalFiles.length ? loadAssertionBearers() : [];
   if (auditDirtyFiles && terminalFiles.length) {
     try {
       for (const file of terminalFiles.slice(0, DIRTY_FILE_LOG_LIMIT)) {
@@ -94,7 +95,12 @@ const main = async () => {
           continue;
         }
         // 与 PostToolUse critic 同源：断言层（确定性）+ n-gram 分类器，同一改动两套入口一套结论
-        const assertionHits = await runAssertionReview({ diff, filePaths: [file], recalledReqs: recalled, matchPathPattern });
+        const assertionHits = await runAssertionReview({
+          diff,
+          filePaths: [file],
+          recalledReqs: mergeAssertionPool(recalled, assertionBearers),
+          matchPathPattern
+        });
         const verdict = runCriticReview({ diff, recalledReqs: recalled });
         const conflictRecords = [...verdict.conflicts];
         for (const hit of assertionHits) {
