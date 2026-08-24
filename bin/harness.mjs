@@ -2,6 +2,7 @@
 // harness — 需求记忆脚手架 CLI
 // 用法：
 //   harness init [--agents codex,claude,grok]   初始化 .agentdoc/harness 脚手架并渲染 agent 适配器
+//                                               --agents 省略时自动探测（CLAUDECODE 环境线索 / .claude .codex 目录）
 //   reqbank scope <task...>                     任务 → REQ/TC 证据链（JSONL）
 //   harness check                               脚手架健康检查（结构完整性 / 占位符残留）
 //   harness doctor                              同 check（别名）
@@ -15,7 +16,7 @@
 // 安装位置：<repo>/.harness/bin/harness.mjs
 
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -62,6 +63,30 @@ const gitRoot = () => {
 };
 
 const GITIGNORE_MARKER = '# reqbank(harness) runtime artifacts';
+
+// 事件级追加合并：同一事件下已存在相同 command 的条目跳过，保证重复 init 零重复。
+const mergeClaudeHooks = (settings, claudeHooks) => {
+  const hooks = settings.hooks && typeof settings.hooks === 'object' && !Array.isArray(settings.hooks)
+    ? { ...settings.hooks }
+    : {};
+  let changed = false;
+  for (const [event, groups] of Object.entries(claudeHooks)) {
+    const existingGroups = Array.isArray(hooks[event]) ? hooks[event] : [];
+    const knownCommands = new Set(existingGroups.flatMap((group) =>
+      Array.isArray(group?.hooks) ? group.hooks.map((hook) => hook?.command).filter(Boolean) : []));
+    for (const group of groups) {
+      const commands = (group.hooks ?? []).map((hook) => hook.command);
+      if (commands.length && commands.every((command) => knownCommands.has(command))) {
+        continue;
+      }
+      existingGroups.push(group);
+      commands.forEach((command) => knownCommands.add(command));
+      changed = true;
+    }
+    hooks[event] = existingGroups;
+  }
+  return { hooks, changed };
+};
 
 // 只忽略引擎运行产物；.agentdoc 下的真源文档（modules/global）必须进版本库。
 // 幂等：已存在的条目跳过；标记块已存在时只在块内补缺，避免重复块。
@@ -138,9 +163,28 @@ const cmdInit = async (options) => {
     console.log(`[reqbank] cli installed: ${join(binDir, 'harness.mjs')}`);
   }
 
-  const agents = options.agents.length
+  let agents = options.agents.length
     ? options.agents
-    : (process.env.HARNESS_AGENTS ?? 'codex').split(',').map((item) => item.trim()).filter(Boolean);
+    : (process.env.HARNESS_AGENTS ? process.env.HARNESS_AGENTS.split(',').map((item) => item.trim()).filter(Boolean) : null);
+  if (!agents) {
+    // 探测优先级：运行环境线索（新仓库常无任何配置目录）→ 目录存在性；猜错可 --agents 覆盖
+    const detected = new Set();
+    if (process.env.CLAUDECODE === '1') {
+      detected.add('claude');
+    }
+    if (existsSync(join(root, '.claude'))) {
+      detected.add('claude');
+    }
+    if (existsSync(join(root, '.codex'))) {
+      detected.add('codex');
+    }
+    if (!detected.size) {
+      console.error('[reqbank] 未检测到已配置的 agent（无 CLAUDECODE 环境线索、无 .claude/.codex 目录）。请用 --agents codex,claude 指定，或询问用户当前使用什么工具。');
+      process.exit(2);
+    }
+    agents = [...detected];
+    console.log(`[reqbank] agents 自动探测：${agents.join(',')}（可用 --agents 覆盖）`);
+  }
 
   const hookCommand = (hookName) =>
     `node "$(git rev-parse --show-toplevel)/.harness/engine/${hookName}.mjs"`;
@@ -181,12 +225,32 @@ const cmdInit = async (options) => {
         Stop: [{ hooks: [{ type: 'command', command: hookCommand('finalize'), timeout: 60 }] }]
       };
       if (!existsSync(settingsPath)) {
-        writeFileSync(settingsPath, JSON.stringify({ hooks: claudeHooks }, null, 2));
+        writeFileSync(settingsPath, `${JSON.stringify({ hooks: claudeHooks }, null, 2)}\n`);
         console.log('[reqbank] claude adapter → .claude/settings.json');
       } else {
-        const snippetPath = join(root, '.claude', 'harness-hooks-snippet.json');
-        writeFileSync(snippetPath, JSON.stringify(claudeHooks, null, 2));
-        console.log(`[reqbank] claude settings 已存在，片段写入 ${snippetPath}（请手动合并到 settings.json 的 hooks 字段）`);
+        // 自动合并：只往 hooks 各事件数组追加缺失条目，其余字段原样保留；坏文件回退片段模式
+        let settings = null;
+        try {
+          settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+        } catch (error) {
+          settings = null;
+          console.warn(`[reqbank] ⚠ settings.json 无法解析（${error.message}）`);
+        }
+        const mergeTarget = settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : null;
+        if (mergeTarget) {
+          const merged = mergeClaudeHooks(mergeTarget, claudeHooks);
+          if (merged.changed) {
+            copyFileSync(settingsPath, `${settingsPath}.bak`);
+            writeFileSync(settingsPath, `${JSON.stringify({ ...mergeTarget, hooks: merged.hooks }, null, 2)}\n`);
+            console.log(`[reqbank] claude settings 已自动合并钩子（原内容保留，备份于 .claude/settings.json.bak）`);
+          } else {
+            console.log('[reqbank] claude settings 已含全部钩子，无需修改');
+          }
+        } else {
+          const snippetPath = join(root, '.claude', 'harness-hooks-snippet.json');
+          writeFileSync(snippetPath, `${JSON.stringify(claudeHooks, null, 2)}\n`);
+          console.warn(`[reqbank] 片段写入 ${snippetPath}——需手动合并进 settings.json 的 hooks 字段，合并前钩子不生效`);
+        }
       }
     } else if (agent === 'grok') {
       console.log('[reqbank] grok 适配器为实验特性：请参考 README「多包仓库 / Grok 桥接」一节手动配置');
@@ -206,6 +270,22 @@ const cmdInit = async (options) => {
   const gitignoreAdded = ensureGitignoreEntries(root, gitignoreEntries);
   if (gitignoreAdded.length) {
     console.log(`[reqbank] gitignore += ${gitignoreAdded.join(', ')}`);
+  }
+
+  // 安装即验证：成功标识 = "✓ check passed"；存量脚手架债务只警告，不阻断 init
+  const selfCheck = spawnSync(process.execPath, [join(BIN_DIR, 'harness.mjs'), 'check'], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, HARNESS_PROJECT_ROOT: root }
+  });
+  if (selfCheck.status === 0) {
+    console.log('[reqbank] ✓ check passed —— 安装完成');
+  } else {
+    console.warn('[reqbank] ⚠ check 报告问题（不影响安装，多为存量脚手架债务）：');
+    const detail = `${selfCheck.stdout ?? ''}${selfCheck.stderr ?? ''}`.trim();
+    if (detail) {
+      console.warn(detail.split('\n').map((line) => `  ${line}`).join('\n'));
+    }
   }
 
   console.log('\n下一步：');

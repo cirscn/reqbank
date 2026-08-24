@@ -4,6 +4,8 @@
 
 纯 Node（无三方依赖）+ 纯 Markdown 真源。不绑定任何单一 AI 工具。
 
+> 🤖 给 agent 的浓缩参考见 [llms.txt](llms.txt)——事实密度优先，命令可直接执行。
+
 ![npm](https://img.shields.io/npm/v/@cirscn/reqbank) ![node](https://img.shields.io/node/v/@cirscn/reqbank) ![license](https://img.shields.io/npm/l/@cirscn/reqbank)
 
 ## 它解决什么
@@ -16,10 +18,22 @@
 
 ## 安装
 
+### 方式一：让 Agent 替你装（推荐）
+
+复制下方指令，直接发给你的 AI 编码助手（Claude Code / Codex 等）：
+
+> 在当前仓库运行 `npx @cirscn/reqbank init`——它会自动探测已配置的 agent，探测不到会明确报错，届时再问我用哪个工具。退出码 0 且输出含 `✓ check passed` 即安装成功。装完提醒我：钩子从下一个会话开始生效；建议提交 `.harness/`、`.agentdoc/` 与适配器配置。
+>
+> 安装完成后，你的每个会话都会自动召回我沉淀的需求契约（REQ/TC），改动违反契约时收尾拦截。
+
+### 方式二：手动安装
+
 ```bash
 cd your-repo
-npx @cirscn/reqbank init --agents codex,claude   # 首次安装（引擎 + 脚手架 + 钩子注册）
+npx @cirscn/reqbank init    # --agents 可省略：自动探测（CLAUDECODE 环境线索、.claude/、.codex/ 目录）
 ```
+
+仓库已有 `.claude/settings.json` 时自动合并钩子条目（原内容原样保留，写前留 `.bak` 备份），仅当该文件无法解析才回退为片段文件待手动合并。init 末尾自动运行 `check`，输出 `✓ check passed` 即安装成功；钩子自新会话起生效。
 
 安装产物：
 

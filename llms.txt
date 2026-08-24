@@ -1,0 +1,101 @@
+# @cirscn/reqbank
+
+> AI 编码代理的需求记忆脚手架：把业务契约沉淀为带标签的 REQ/TC Markdown 真源，会话钩子每回合自动召回注入，编辑后按 diff 对照条款分类冲突，收尾时对确定性冲突硬拦截。纯 Node ≥ 22.5、零运行时依赖、agent 无关。MIT。
+
+本文件是给 LLM/agent 的浓缩参考，条目均与代码核对，命令可直接执行。人类向文档见 [README.md](README.md)。
+
+## 身份事实
+
+- npm 包名 `@cirscn/reqbank`，bin 命令 `reqbank`，仓库 `github.com/cirscn/reqbank`
+- 引擎安装位置 `<repo>/.harness/`，真源位置 `<repo>/.agentdoc/harness/`（纯 Markdown）
+- 需 bash 环境（Windows 用 Git Bash）；Node ≥ 22.5
+
+## 30 秒接入（目标仓库根执行）
+
+```bash
+npx @cirscn/reqbank init
+# 成功标识：退出码 0，输出末尾出现 "✓ check passed —— 安装完成"
+# agent 自动探测：CLAUDECODE 环境线索 + .claude/ .codex/ 目录；探测不到会 exit 2
+#   并提示 --agents——此时询问用户，不要自行猜测
+# 已有 .claude/settings.json：自动合并钩子（原条目保留，写前留 .bak）；仅当文件无法
+#   解析才落 harness-hooks-snippet.json 待手动合并（唯一需要人工的路径）
+
+# 钩子自新会话起生效，当轮对话不触发——不要据此判断安装失败。
+# 终极标识：新开会话随便说一句话后，learning-log 应出现新记录：
+tail -1 .agentdoc/harness/learning-log.jsonl   # 有新事件行 = 钩子已在工作
+
+# 建议提交：.harness/ + .agentdoc/ + 适配器配置（.codex/hooks.json 或 .claude/settings.json）
+```
+
+调用形态二选一：`npx @cirscn/reqbank <cmd>`（未本地安装）或 `node .harness/bin/harness.mjs <cmd>`（已安装；钩子注册用的就是后者）。
+
+## init 副作用清单
+
+| 路径 | 动作 | 进版本库 |
+|---|---|---|
+| `.harness/{bin,engine,templates}/` | 创建或补齐 | 是 |
+| `.agentdoc/harness/` | 建脚手架（真源） | 是 |
+| `.codex/hooks.json`、`.claude/settings.json` | 渲染适配器；已有 settings.json 自动合并（原条目保留，留 `.bak`） | 是 |
+| `.gitignore` | 幂等追加运行产物忽略 | — |
+| `.agentdoc/harness/hook-payloads/`、`learning-log.jsonl` | 运行时生成，init 时写入忽略 | 否 |
+| `.claude/settings.local.json` | 仅 `--agents` 含 claude 时写入忽略 | 否 |
+
+幂等：重复 init 不覆盖已有真源、不重复追加 gitignore、对已合并的 settings.json 零变更。仅当已有 settings.json 无法解析时，才落 `harness-hooks-snippet.json` 待手动合并。
+
+## 真源格式（agent 要写的文件）
+
+模块目录 `.agentdoc/harness/modules/<模块>/` 三件套：
+
+- `index.md` 命中路径：`- \`path/or/glob\` [strong|weak] | tag1,tag2`
+- `requirements.md`：`## 索引` 下 `REQ-001 | tag | TC-001 | 标题`；`## 需求澄清` 下 `REQ-001: 正文`
+- `tests.md`：`## 索引` 下 `TC-001 | tag | REQ-001 | 标题`；`## 测试用例` 下 `TC-001: G=前提 | W=改动 | E=预期 | V=\`pnpm vitest run ...\``
+
+三条铁律：① 条款要写"不得做什么"，不只写理想路径；② 每条 REQ 挂可执行 TC（V 字段命令需以 pnpm/npm/node/yarn/npx 开头）；③ REQ 标签必须出现在某条命中路径的标签里，否则 `check` 报 tag-coverage。
+
+## CLI 参考
+
+| 命令 | 参数 | 行为与退出码 |
+|---|---|---|
+| `init` | `--agents codex,claude`（可省略，自动探测） | 见副作用清单；末尾自动 check；探测不到 agent 或无法定位仓库 exit 2 |
+| `scope <任务>` | — | 任务 → REQ/TC 证据链，stdout JSONL |
+| `check` / `doctor` | `--strict` | 结构 + 双 lint；有问题 exit 1；`--strict` 把矛盾警告升级为失败 |
+| `verify` | `--turn <id>` / `--tc <scope:TC-001>`（可多个） | 默认取 learning-log 最近有召回的回合，执行命中 TC 的 V 命令；任一失败 exit 1 |
+| `report` | `--days N` `--json` | 召回命中率 / 冲突分布 / 阻断趋势 |
+| `impact <file...>` | — | 需 `.mex/graph.db`，返回调用邻居影响面 |
+| `update` | `--git` | npm registry 拉最新（默认）或 git 远端；只替换 `.harness/*`，绝不动真源 |
+| `smoke` / `version` | — | 临时仓库全链路自检 / 打印版本 |
+
+## 钩子行为（引擎只有一套，四事件）
+
+| 事件 | 引擎脚本 | 效果 |
+|---|---|---|
+| SessionStart | `session-init.mjs` | 会话初始化 |
+| UserPromptSubmit | `recall.mjs` | 召回摘要注入 additionalContext |
+| PostToolUse | `critic.mjs` | diff 对照条款分类冲突 + 审计；Claude matcher `Edit\|Write\|MultiEdit`，Codex 另含 `apply_patch\|search_replace` |
+| Stop | `finalize.mjs` | 确定性冲突 `decision:block` 硬拦截，其余只记审计 |
+
+注册位置：Claude Code → `.claude/settings.json`；Codex → `.codex/hooks.json`；Grok → rules 文件中继（降级观察模式）。每次钩子触发向 `learning-log.jsonl` 追加一条记录。
+
+## 环境变量（全部可选）
+
+| 变量 | 作用 |
+|---|---|
+| `HARNESS_PROJECT_ROOT` | 为子进程锚定项目根（仓库外 cwd 调用时需要） |
+| `HARNESS_AGENTS` | install.sh / init 的默认 agent 列表 |
+| `HARNESS_KIT_URL` | 覆盖 kit 远端（install.sh 下载源、`update --git` 克隆源） |
+| `HARNESS_KEEP_RAW_PAYLOAD=1` | hook-payloads 采样保留完整原文（默认只存摘要+预览） |
+| `HARNESS_LLM_CRITIC=1` | 启用 LLM critic，捕获新增式违反禁止条款；需 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`（兼容 `OPENAI_BASE_URL`）；无 key/超时/解析失败一律 fail-open |
+| `HARNESS_LLM_MODEL` / `HARNESS_LLM_TIMEOUT_MS` / `HARNESS_LLM_MAX_RECORDS` | LLM critic 细调 |
+| `HARNESS_IMPACT=off` | 关闭结构影响面层 |
+
+## 故障对照（确定性规则）
+
+- `update` 报 registry unreachable → 改 `update --git`，或 `HARNESS_KIT_URL` 指向 fork
+- 0.5.2 及更早安装的 npm 模式 update 拉旧包名必失败 → 先 `npx @cirscn/reqbank@latest init`（幂等）修复本引擎
+- `check` 报 tag-coverage → 该 REQ 的标签没登记进任何模块 `index.md` 的路径行
+- recall 未注入 → 确认会话在仓库内且 `.agentdoc/harness/` 存在；用 `scope` 手动验证召回
+- `.claude/settings.json` 无法解析 → init 自动回退片段模式：手动把 `harness-hooks-snippet.json` 合并进 `hooks` 字段（唯一需人工的路径）
+
+## 升级与边界
+
+`update` 只替换 `.harness/engine|bin|templates`，`.agentdoc/harness/` 真源永不触碰。多包仓库两种姿势：按包独立安装，或仓根单实例用命中路径区分（`packages/a/src/**`）。维护者发版流程见 [RELEASE.md](RELEASE.md)。

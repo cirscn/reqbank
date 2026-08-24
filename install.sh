@@ -5,7 +5,7 @@
 #   bash install.sh [--agents codex,claude] [--repo /path/to/repo]
 set -euo pipefail
 
-AGENTS="${HARNESS_AGENTS:-codex}"
+AGENTS="${HARNESS_AGENTS:-}"
 REPO=""
 KIT_DIR=""
 
@@ -50,7 +50,11 @@ cp "$KIT_DIR/bin/harness.mjs" "$REPO/.harness/bin/"
 # init 必须落在目标仓库：显式锚定根目录，防止在调用者 cwd 误建脚手架
 export HARNESS_PROJECT_ROOT="$REPO"
 cd "$REPO"
-node .harness/bin/harness.mjs init --agents "$AGENTS"
+if [[ -n "$AGENTS" ]]; then
+  node .harness/bin/harness.mjs init --agents "$AGENTS"
+else
+  node .harness/bin/harness.mjs init   # 自动探测 agent（环境线索 + 配置目录）
+fi
 
 cat <<'NEXT'
 

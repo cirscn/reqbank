@@ -8,8 +8,14 @@ import { fileURLToPath } from 'node:url';
 
 const KIT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
-// 测试隔离：所有子进程显式锚定 scratch 根，防止继承外层 HARNESS_PROJECT_ROOT
-const isolatedEnv = (root, extra = {}) => ({ ...process.env, ...extra, HARNESS_PROJECT_ROOT: root });
+// 测试隔离：所有子进程显式锚定 scratch 根，防止继承外层 HARNESS_PROJECT_ROOT；
+// 剥离 CLAUDECODE / HARNESS_AGENTS，探测测试不随宿主环境漂移
+const isolatedEnv = (root, extra = {}) => {
+  const env = { ...process.env, HARNESS_PROJECT_ROOT: root };
+  delete env.CLAUDECODE;
+  delete env.HARNESS_AGENTS;
+  return { ...env, ...extra };
+};
 const expect = (condition, message) => {
   if (!condition) failures.push(message);
 };
@@ -79,6 +85,52 @@ try {
     parsed = JSON.parse(recall.stdout.trim() || '{}');
   } catch {}
   expect(Boolean(parsed?.hookSpecificOutput?.additionalContext), 'recall should inject additionalContext');
+
+  // 自动探测：无线索空仓库必须报可操作的错，而非默认猜一个
+  const bare = mkdtempSync(join(tmpdir(), 'harness-kit-smoke-bare-'));
+  try {
+    spawnSync('git', ['init', '-q'], { cwd: bare });
+    const bareInit = spawnSync(process.execPath, [join(KIT_ROOT, 'bin', 'harness.mjs'), 'init'], {
+      cwd: bare, encoding: 'utf8', env: isolatedEnv(bare)
+    });
+    expect(bareInit.status === 2, `bare init should exit 2, got ${bareInit.status}`);
+    expect((bareInit.stderr ?? '').includes('--agents'), 'bare init error should point to --agents');
+
+    // CLAUDECODE 环境线索 → claude 适配器直写 + init 内置 check 成功标识
+    const claudeInit = spawnSync(process.execPath, [join(KIT_ROOT, 'bin', 'harness.mjs'), 'init'], {
+      cwd: bare, encoding: 'utf8', env: isolatedEnv(bare, { CLAUDECODE: '1' })
+    });
+    expect(claudeInit.status === 0, `claude init exit ${claudeInit.status}: ${claudeInit.stderr}`);
+    expect(existsSync(join(bare, '.claude', 'settings.json')), 'claude adapter missing');
+    expect((claudeInit.stdout ?? '').includes('check passed'), 'init should print check passed marker');
+    expect(!existsSync(join(bare, '.claude', 'harness-hooks-snippet.json')), 'fresh claude install must not use snippet fallback');
+
+    // 已有第三方 hook 的 settings.json：自动合并、保留原条目、留 .bak
+    writeFileSync(join(bare, '.claude', 'settings.json'), JSON.stringify({
+      hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'echo hi' }] }] },
+      permissions: { allow: ['Bash(ls)'] }
+    }, null, 2));
+    const mergeInit = spawnSync(process.execPath, [join(KIT_ROOT, 'bin', 'harness.mjs'), 'init'], {
+      cwd: bare, encoding: 'utf8', env: isolatedEnv(bare, { CLAUDECODE: '1' })
+    });
+    expect(mergeInit.status === 0, `merge init exit ${mergeInit.status}: ${mergeInit.stderr}`);
+    const merged = JSON.parse(readFileSync(join(bare, '.claude', 'settings.json'), 'utf8'));
+    expect(merged.permissions.allow.includes('Bash(ls)'), 'merge must preserve permissions');
+    const sessionCommands = merged.hooks.SessionStart.flatMap((group) => group.hooks.map((hook) => hook.command));
+    expect(sessionCommands.includes('echo hi'), 'merge must preserve third-party hook');
+    expect(sessionCommands.filter((command) => command.includes('session-init.mjs')).length === 1, 'our hook appended exactly once');
+    expect(existsSync(join(bare, '.claude', 'settings.json.bak')), 'merge should leave .bak backup');
+
+    // 幂等：重复 init 对 settings.json 零变更
+    const before = readFileSync(join(bare, '.claude', 'settings.json'), 'utf8');
+    const againInit = spawnSync(process.execPath, [join(KIT_ROOT, 'bin', 'harness.mjs'), 'init'], {
+      cwd: bare, encoding: 'utf8', env: isolatedEnv(bare, { CLAUDECODE: '1' })
+    });
+    expect(againInit.status === 0, `repeat init exit ${againInit.status}: ${againInit.stderr}`);
+    expect(readFileSync(join(bare, '.claude', 'settings.json'), 'utf8') === before, 'repeat init must not change settings.json');
+  } finally {
+    rmSync(bare, { recursive: true, force: true });
+  }
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }
