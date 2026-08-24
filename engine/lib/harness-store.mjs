@@ -6,7 +6,15 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { getProjectRoot, repoPath } from './repo-paths.mjs';
 
-const HARNESS_ROOT = repoPath('.agentdoc', 'harness');
+// 惰性求根：本模块被 lint.mjs 等库文件 import，非 harness 项目内 import 不得崩溃——
+// 根路径延迟到首次实际取用（取用时无根自然报错，import 本身零副作用）。
+let harnessRootCache = null;
+const harnessRoot = () => {
+  if (harnessRootCache === null) {
+    harnessRootCache = repoPath('.agentdoc', 'harness');
+  }
+  return harnessRootCache;
+};
 
 const readText = (path) => readFileSync(path, 'utf8');
 
@@ -236,7 +244,7 @@ const parseTests = (file, scope) => {
 };
 
 const listModuleDirs = () => {
-  const modulesRoot = join(HARNESS_ROOT, 'modules');
+  const modulesRoot = join(harnessRoot(), 'modules');
   if (!existsSync(modulesRoot)) {
     return [];
   }
@@ -303,7 +311,7 @@ export const getModuleHitPaths = (moduleDir) => {
 };
 
 export const getGlobalHitPaths = () => {
-  const indexPath = join(HARNESS_ROOT, 'global', 'index.md');
+  const indexPath = join(harnessRoot(), 'global', 'index.md');
   if (!existsSync(indexPath)) {
     return [];
   }
@@ -327,7 +335,7 @@ export const getGlobalHitPaths = () => {
 // includeInactive=false（默认）：draft/superseded 条目不进入召回与执法（运行时语义）；
 // `reqbank check` 传 true 做全量追溯校验（superseded 目标存在性、取代链查环）。
 export const loadAllRequirements = ({ includeInactive = false } = {}) => {
-  const records = parseRequirements(join(HARNESS_ROOT, 'global', 'requirements.md'), 'global');
+  const records = parseRequirements(join(harnessRoot(), 'global', 'requirements.md'), 'global');
   for (const moduleDir of listModuleDirs()) {
     const name = moduleDir.split('/').pop();
     records.push(...parseRequirements(join(moduleDir, 'requirements.md'), name));
@@ -336,7 +344,7 @@ export const loadAllRequirements = ({ includeInactive = false } = {}) => {
 };
 
 export const loadAllTests = ({ includeInactive = false } = {}) => {
-  const records = parseTests(join(HARNESS_ROOT, 'global', 'tests.md'), 'global');
+  const records = parseTests(join(harnessRoot(), 'global', 'tests.md'), 'global');
   for (const moduleDir of listModuleDirs()) {
     const name = moduleDir.split('/').pop();
     records.push(...parseTests(join(moduleDir, 'tests.md'), name));
@@ -347,7 +355,7 @@ export const loadAllTests = ({ includeInactive = false } = {}) => {
 export const listModulesWithMeta = () => {
   return [{
     name: 'global',
-    dir: join(HARNESS_ROOT, 'global'),
+    dir: join(harnessRoot(), 'global'),
     paths: getGlobalHitPaths()
   }, ...listModuleDirs().map((dir) => ({
     name: dir.split('/').pop(),
@@ -357,7 +365,7 @@ export const listModulesWithMeta = () => {
 };
 
 export const listPendingModules = () => {
-  const indexPath = join(HARNESS_ROOT, 'index.md');
+  const indexPath = join(harnessRoot(), 'index.md');
   if (!existsSync(indexPath)) {
     return [];
   }
@@ -384,7 +392,7 @@ export const listPendingModules = () => {
 
 // 根 index.md「已建模块」清单解析：与 modules/ 目录实况对照，漂移由 trace-integrity lint 报告。
 export const listRegisteredModules = () => {
-  const indexPath = join(HARNESS_ROOT, 'index.md');
+  const indexPath = join(harnessRoot(), 'index.md');
   if (!existsSync(indexPath)) {
     return [];
   }
@@ -426,8 +434,14 @@ const loadRecallConfig = () => {
   }
   const generic = new Set(DEFAULT_GENERIC_RECALL_TAGS);
   const synonymGroups = DEFAULT_SYNONYM_GROUPS.map((group) => [...group]);
-  const indexPath = join(HARNESS_ROOT, 'index.md');
-  if (existsSync(indexPath)) {
+  // 无项目根（本模块被 lint.mjs 等库文件在非 harness 上下文 import）时回落内置默认——import 零副作用
+  let indexPath = '';
+  try {
+    indexPath = join(harnessRoot(), 'index.md');
+  } catch {
+    indexPath = '';
+  }
+  if (indexPath && existsSync(indexPath)) {
     let inSection = false;
     for (const line of readTextCached(indexPath).split('\n')) {
       if (line.startsWith('## ')) {
