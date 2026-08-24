@@ -7,7 +7,7 @@ import { getBusinessFileUnifiedDiff, getDirtyBusinessFileChangesSinceBaseline } 
 import { extractKeywords, matchPathPattern, loadAllRequirements, loadAllTests, recallByPaths } from './lib/harness-store.mjs';
 import { formatFinalizeFeedback, runCriticReview } from './lib/critic-prompt.mjs';
 import { runAssertionReview } from './lib/assertions.mjs';
-import { extractCommands, findUnsafe } from './lib/tc-exec.mjs';
+import { extractCommands, findUnsafe, tcShell } from './lib/tc-exec.mjs';
 import { getProjectRoot } from './lib/repo-paths.mjs';
 import { appendLog, appendPayloadSample, findEventsByTurn, parseHookPayload, readHookStdin } from './lib/learning-log.mjs';
 
@@ -149,7 +149,7 @@ const main = async () => {
               }
             }
             ran += 1;
-            const result = spawnSync(command, { cwd: getProjectRoot(), encoding: 'utf8', shell: true, timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+            const result = spawnSync(command, { cwd: getProjectRoot(), encoding: 'utf8', shell: tcShell(), timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
             const pass = result.status === 0;
             if (!pass) failed += 1;
             stopTcResults.push({ id, tc: tcId, command, exit: result.status, pass });

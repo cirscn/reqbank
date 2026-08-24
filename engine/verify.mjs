@@ -21,7 +21,7 @@ import { join } from 'node:path';
 import { getProjectRoot, repoPath } from './lib/repo-paths.mjs';
 import { loadAllTests } from './lib/harness-store.mjs';
 import { appendLog } from './lib/learning-log.mjs';
-import { extractCommands, findUnsafe } from './lib/tc-exec.mjs';
+import { extractCommands, findUnsafe, tcShell } from './lib/tc-exec.mjs';
 
 const LOG_PATH = () => repoPath('.agentdoc', 'harness', 'learning-log.jsonl');
 
@@ -144,7 +144,7 @@ const main = async () => {
       const result = spawnSync(command, {
         cwd: root,
         encoding: 'utf8',
-        shell: true,
+        shell: tcShell(),
         maxBuffer: 8 * 1024 * 1024,
         timeout: 300000
       });

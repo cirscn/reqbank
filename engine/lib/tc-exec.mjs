@@ -1,6 +1,10 @@
 // TC 验证命令执行器：从 V 字段提取命令 + 危险模式确定性拒绝。
 // verify.mjs 与 finalize.mjs（P4 Stop 自动验证）共用——同一套执行语义。
 
+// Windows 下 spawnSync shell:true 走 cmd.exe，嵌套引号的 node -e 命令必被掰坏；
+// 本工具声明依赖 Git Bash（README Windows 说明），TC 执行在 win32 显式走 bash。
+export const tcShell = () => (process.platform === 'win32' ? 'bash' : true);
+
 export const extractCommands = (verifyText) => {
   const commands = [];
   for (const match of String(verifyText ?? '').matchAll(/`([^`]+)`/g)) {

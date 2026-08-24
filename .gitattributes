@@ -1,0 +1,2 @@
+# 引擎与真源模板一律 LF：Windows checkout（autocrlf）换成 CRLF 会污染解析与逐字节断言
+* text=auto eol=lf
