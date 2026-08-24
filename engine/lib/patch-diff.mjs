@@ -30,7 +30,7 @@ export const extractChangedLinesFromApplyPatch = (command) => {
   return changedLines.length ? changedLines.join('\n') : text;
 };
 
-const normalizeChangedFilePath = (filePath, { cwd } = {}) => {
+export const normalizeChangedFilePath = (filePath, { cwd } = {}) => {
   let normalized = String(filePath ?? '')
     .trim()
     .replace(/^["'`(（\[]+/, '')
@@ -64,4 +64,60 @@ export const extractChangedFilePaths = (command, options = {}) => {
     match = filePattern.exec(text);
   }
   return [...paths];
+};
+
+// Claude Code 的 Edit/Write/MultiEdit 不携带 command 补丁：tool_input 是
+// file_path + old_string/new_string（Write 为 content，MultiEdit 为 edits 数组），
+// tool_response.structuredPatch 是 unified hunk（{oldStart,oldLines,newStart,newLines,lines}）。
+// 统一归一为 { text: '+新增/-删除 行文本', filePaths: [...] }；Codex 的 command
+// 形状返回 null，仍走既有 apply_patch 解析通道。实证样本见 2026-08-24 claude 2.1.220 探针。
+export const normalizeClaudeCodeEdit = (input) => {
+  const toolInput = input?.tool_input;
+  const toolResponse = input?.tool_response;
+  if (!toolInput || typeof toolInput !== 'object') {
+    return null;
+  }
+  if (typeof toolInput.command === 'string' && toolInput.command) {
+    return null;
+  }
+  const filePath = toolInput.file_path ?? toolResponse?.filePath;
+  if (typeof filePath !== 'string' || !filePath) {
+    return null;
+  }
+
+  const lines = [];
+  const hunks = toolResponse?.structuredPatch;
+  if (Array.isArray(hunks)) {
+    for (const hunk of hunks) {
+      for (const line of hunk?.lines ?? []) {
+        if (typeof line === 'string' && line !== '') {
+          lines.push(line);
+        }
+      }
+    }
+  }
+  if (!lines.length) {
+    const pushPrefixed = (text, prefix) => {
+      for (const line of String(text ?? '').split(/\r?\n/)) {
+        if (line !== '') {
+          lines.push(prefix + line);
+        }
+      }
+    };
+    if (Array.isArray(toolInput.edits)) {
+      for (const edit of toolInput.edits) {
+        pushPrefixed(edit?.old_string, '-');
+        pushPrefixed(edit?.new_string, '+');
+      }
+    } else if (typeof toolInput.old_string === 'string' || typeof toolInput.new_string === 'string') {
+      pushPrefixed(toolInput.old_string, '-');
+      pushPrefixed(toolInput.new_string, '+');
+    } else if (typeof toolInput.content === 'string') {
+      pushPrefixed(toolInput.content, '+');
+    }
+  }
+  if (!lines.length) {
+    return null;
+  }
+  return { text: lines.join('\n'), filePaths: [filePath] };
 };

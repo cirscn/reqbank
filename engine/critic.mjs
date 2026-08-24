@@ -6,7 +6,7 @@ import { extractKeywords, recallByPaths } from './lib/harness-store.mjs';
 import { formatCriticVerdict, runCriticReview, selectProhibitionCandidates } from './lib/critic-prompt.mjs';
 import { applyLlmCritic } from './lib/llm-critic.mjs';
 import { appendLog, appendPayloadSample, findEventsByTurn, parseHookPayload, readHookStdin } from './lib/learning-log.mjs';
-import { extractChangedFilePaths, extractChangedLinesFromApplyPatch } from './lib/patch-diff.mjs';
+import { extractChangedFilePaths, extractChangedLinesFromApplyPatch, normalizeChangedFilePath, normalizeClaudeCodeEdit } from './lib/patch-diff.mjs';
 
 const formatScopedId = (record) => `${record.scope}:${record.id}`;
 
@@ -20,12 +20,17 @@ const main = async () => {
 
   const turnId = input.turn_id ?? null;
   const toolInput = input.tool_input ?? {};
-  const rawDiff = toolInput.command ?? '';
+  // 双形状输入：Codex apply_patch 走 tool_input.command；Claude Code Edit/Write/MultiEdit
+  // 走 file_path + old/new（或 structuredPatch），由 normalizeClaudeCodeEdit 归一。
+  const claudeEdit = normalizeClaudeCodeEdit(input);
+  const rawDiff = toolInput.command ?? claudeEdit?.text ?? '';
   const diff = extractChangedLinesFromApplyPatch(rawDiff);
 
   // PostToolUse 自主召回：不依赖 UserPromptSubmit 的关键词召回结果（容易伪召回 / classifyPromptKind 失灵），
   // 而是从本次 patch 实际改动的文件路径出发，按模块 strong 路径召回 REQ/TC。
-  const filePaths = extractChangedFilePaths(rawDiff, { cwd: input.cwd ?? '' });
+  const filePaths = claudeEdit
+    ? claudeEdit.filePaths.map((filePath) => normalizeChangedFilePath(filePath, { cwd: input.cwd ?? '' }))
+    : extractChangedFilePaths(rawDiff, { cwd: input.cwd ?? '' });
   const recalledReqs = recallByPaths(filePaths, { keywords: extractKeywords(diff) });
 
   if (recalledReqs.length === 0) {

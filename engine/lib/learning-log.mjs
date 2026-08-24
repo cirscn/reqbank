@@ -66,7 +66,13 @@ export const parseHookPayload = (raw) => {
     return { input: {}, parseError: null };
   }
   try {
-    return { input: JSON.parse(raw), parseError: null };
+    const input = JSON.parse(raw);
+    // 回合标识归一：Codex 发 turn_id，Claude Code 发 prompt_id——统一挂到 turn_id，
+    // findEventsByTurn / critic 同回合去重 / Stop 聚合在两个 agent 上行为一致。
+    if (!input.turn_id && input.prompt_id) {
+      input.turn_id = input.prompt_id;
+    }
+    return { input, parseError: null };
   } catch (err) {
     return { input: {}, parseError: err };
   }
