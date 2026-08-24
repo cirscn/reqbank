@@ -34,5 +34,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cirscn/reqbank.git"
+  },
+  "scripts": {
+    "test": "node eval/p0-regression.mjs && node eval/p1-regression.mjs && node eval/p2-regression.mjs && node eval/p3p4-regression.mjs && node eval/adversarial.mjs && node scripts/smoke.mjs",
+    "test:full": "node eval/coverage-100.mjs"
   }
 }

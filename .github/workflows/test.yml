@@ -1,0 +1,23 @@
+name: test
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # reqbank 的钩子命令依赖 POSIX 子命令替换；Windows runner 走 Git Bash（Git for Windows 自带）。
+      # bpms 夹具相关用例在无夹具环境自动跳过——CI 只跑自包含部分（约 60 项）。
+      - name: npm test（五套回归 + 对抗评测 + smoke）
+        shell: bash
+        run: npm test
