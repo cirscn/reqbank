@@ -1,0 +1,37 @@
+{
+  "name": "@cirscn/reqbank",
+  "version": "0.5.1",
+  "description": "AI 编码代理的需求记忆脚手架：REQ/TC 召回注入 + 确定性冲突拦截，纯 Markdown 真源，agent 无关",
+  "type": "module",
+  "bin": {
+    "reqbank": "bin/harness.mjs"
+  },
+  "files": [
+    "bin/",
+    "engine/",
+    "templates/",
+    "scripts/",
+    "install.sh",
+    "VERSION",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.5"
+  },
+  "keywords": [
+    "ai-coding-agents",
+    "claude-code",
+    "codex",
+    "requirements",
+    "living-documentation",
+    "drift-detection",
+    "hooks",
+    "mcp-adjacent",
+    "spec-driven-development"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cirscn/reqbank.git"
+  }
+}
