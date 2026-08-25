@@ -46,6 +46,10 @@ REQ-002 | success-path | TC-002 | 正向提示通路
 
 REQ-001: 全局拦截里 isMessageHandledError 命中的已处理错误必须直接 return 跳过，不得再经 toRequestError 抛出——守卫缺失会让同一错误重复弹出。
 REQ-002: 成功回执展示统一走成功通路组件，由调用方声明展示时机。
+
+## 断言
+
+REQ-001 | no-delete | isMessageHandledError
 `;
 const TESTS_MD = `## 内容索引
 
@@ -148,18 +152,40 @@ const buildRoot = (root, requirementsMd = REQ_MD, testsMd = TESTS_MD, registered
   test('S3', '撤销违规后 → Stop 放行（终态无冲突不误拦）',
     JSON.parse(allowed.stdout).decision === undefined, `decision=${JSON.parse(allowed.stdout).decision}`);
   rmSync(root, { recursive: true, force: true });
+
+  // 无断言：删守卫不硬拦（空话条款不是存款）
+  const rootSoft = join(tmpdir(), `reqbank-p1-soft-${Date.now().toString(36)}`);
+  buildRoot(rootSoft, REQ_MD.replace(/\n## 断言[\s\S]*$/, '\n'));
+  mkdirSync(join(rootSoft, 'src', 'demo'), { recursive: true });
+  writeFileSync(join(rootSoft, GUARD_FILE), ['export const handle = (error) => {', ...GUARD_LINES, '};', ''].join('\n'));
+  gitAt(rootSoft, ['init', '-q']);
+  gitAt(rootSoft, ['config', 'user.email', 'eval@reqbank']);
+  gitAt(rootSoft, ['config', 'user.name', 'reqbank-eval']);
+  gitAt(rootSoft, ['add', '.']);
+  gitAt(rootSoft, ['commit', '-qm', 'init guard']);
+  spawnAt(rootSoft, join(ENGINE, 'recall.mjs'), [], {
+    input: JSON.stringify({ cwd: rootSoft, session_id: 'p1-eval', turn_id: 't-soft', prompt: `修复 ${GUARD_FILE} 的错误重复弹出问题` })
+  });
+  writeFileSync(join(rootSoft, GUARD_FILE), ['export const handle = (error) => {', '  notifyAlways(error);', '};', ''].join('\n'));
+  const softStop = spawnAt(rootSoft, join(ENGINE, 'finalize.mjs'), [], {
+    input: JSON.stringify({ cwd: rootSoft, session_id: 'p1-eval', turn_id: 't-soft' })
+  });
+  test('S-SOFT', '无断言条款删守卫 → Stop 不硬拦（不算存款）',
+    JSON.parse(softStop.stdout).decision === undefined, `decision=${JSON.parse(softStop.stdout).decision}`);
+  rmSync(rootSoft, { recursive: true, force: true });
 }
 
 // ══ ③④ 分层注入 + 预算协议（直接测 formatRecallContext 纯函数 + recall 钩子）═══
 {
-  const record = (id, clarification) => ({
+  const record = (id, clarification, extra = {}) => ({
     scope: 'demo', id, tags: ['error-feedback'], title: `条款${id}`,
-    clarification, file: 'demo/requirements.md', relatedTests: [], given: [], when: [], expect: [], verify: []
+    clarification, file: 'demo/requirements.md', relatedTests: [], given: [], when: [], expect: [], verify: [],
+    assertions: extra.assertions ?? []
   });
   const { formatRecallContext, RECALL_OUTPUT_CAP } = await import(join(ENGINE, 'lib', 'critic-prompt.mjs'));
 
   const mixed = formatRecallContext([
-    record('REQ-001', '已处理错误必须直接跳过，不得再次弹出。'),
+    record('REQ-001', '已处理错误必须直接跳过，不得再次弹出。', { assertions: [{ kind: 'no-delete', pattern: 'isMessageHandledError' }] }),
     record('REQ-002', '成功回执走成功通路组件展示。')
   ]);
   test('L0', '分层注入：禁止类正文直注 + ID 索引分层 + header 首行 + meter 末行',

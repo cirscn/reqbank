@@ -126,7 +126,7 @@ reqbank scope "修复 useFetch 的错误提示去重问题"
 
 ### 条款断言层（把"不得"编译成机器可判规则）
 
-requirements.md 可选 `## 断言` 节，行格式 `REQ-001 | no-delete|forbid-add|forbid-path|forbid-call|no-negate | <pattern>`。断言在 n-gram 分类器**之前**匹配、命中即确定性 conflict（零 LLM）：`no-delete` 抓守卫被删、`forbid-add` 确定性捕获"新增式违反"、`forbid-path` 保护敏感路径。Claude Code 侧由 PreToolUse 钩子**写前拦截**；`reqbank check` 对含禁止语义却无断言的条款给 compile-weak 提示。
+requirements.md 的 `## 断言` 节才是存款：`REQ-001 | no-delete|forbid-add|forbid-path|forbid-call|no-negate | <pattern>`。硬拦（PreToolUse deny / Stop block / `gate` exit 1）**只认断言命中**；只有「不得…」空话的条款不拦截、不占禁止类正文。`no-delete` 抓守卫被删、`forbid-add`/`forbid-call` 捕获新增式违反、`forbid-path` 保护敏感路径、`no-negate` 拦守卫取反。`reqbank check` 对含禁止语义却无断言的条款给 compile-weak 提示。
 
 ### 语法感知层（P5：标点翻转 + tree-sitter WASM）
 

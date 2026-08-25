@@ -3,7 +3,7 @@
 // 与 eval/p5-ast.mjs（受控临时仓库）互补：这里攻击的是真实业务文件、真实守卫约定。
 //   A 翻转攻击四层拦截（pre-critic deny / critic critical / gate exit 1 / Stop block）
 //   B forbid-call：真实调用拦截 + 注释提及不误报 + 合法 antdMessage.error 不误报
-//   C L1 布尔翻转：agent.ts 真实条件 data&&... 翻转（无断言加持，纯标点层）
+//   C L1 布尔翻转：agent.ts 真实条件 data&&... 翻转（无断言则不硬拦）
 //   D 边界存档：已知盲区的负对照（调用形操作数翻转 / 取反删除），如实记录不冒充通过
 //   E Java 真实文件：backend 源码整文件解析干净度 + forbid-call 攻击
 //   F 性能：gate 全库耗时 + 解析延迟
@@ -157,8 +157,8 @@ try {
     [agentLine],
     ['  if (!data && typeof data === \'object\' && typeof data.code !== \'undefined\') {']));
   const c1 = lastLogOf('PostToolUse', 'acc-c1');
-  test('ACC-L1-FLIP', 'C1 真实条件翻转（data → !data）：L1 标点层拦截（无断言加持）',
-    c1.critic_severity === 'critical' && (c1.conflict_ids ?? []).length > 0,
+  test('ACC-L1-FLIP', 'C1 真实条件翻转（data → !data）：无断言则不硬拦',
+    c1.critic_severity !== 'critical' && (c1.conflict_ids ?? []).length === 0,
     `severity=${c1.critic_severity} conflicts=${JSON.stringify(c1.conflict_ids)}`);
 
   // ══ D 已知边界：负对照如实存档 ══

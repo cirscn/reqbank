@@ -121,7 +121,8 @@ t('A04', 'A-安装', 'claude 适配器：settings.json 四事件且不覆盖既�
 });
 t('A05', 'A-安装', 'version 输出与 kit 一致', () => {
   const result = runBin(['version']);
-  ok(result.status === 0 && result.stdout.trim() === KIT_VERSION, `version output: ${result.stdout}`);
+  const printed = (result.stdout.trim().split(/[（(\s]/)[0] ?? '').trim();
+  ok(result.status === 0 && printed === KIT_VERSION, `version output: ${result.stdout}`);
 });
 t('A06', 'A-安装', '安装态 smoke 自检通过', () => {
   const result = runBin(['smoke']);
@@ -670,7 +671,7 @@ t('J06', 'J-度量', 'impact 输出 JSONL 且优雅降级（无 mex 图）', () 
   ok(['ok', 'empty'].includes(entries.at(-1).status), `status=${entries.at(-1).status}`);
 });
 t('J08', 'J-度量', 'version / 未知命令 / 空任务 的 CLI 边界', () => {
-  ok(runBin(['version']).stdout.trim() === KIT_VERSION, 'version');
+  ok((runBin(['version']).stdout.trim().split(/[（(\s]/)[0] ?? '').trim() === KIT_VERSION, 'version');
   ok(runBin(['no-such-cmd']).status === 2, 'unknown cmd should exit 2');
   const empty = runEngine('scope.mjs', []);
   ok(empty.status === 2 && jsonl(empty.stdout).some((e) => e.type === 'error'), 'empty task');

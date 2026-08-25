@@ -5,7 +5,7 @@
 import { spawnSync } from 'node:child_process';
 import { getBusinessFileUnifiedDiff, getDirtyBusinessFileChangesSinceBaseline } from './lib/dirty-files.mjs';
 import { extractKeywords, loadAssertionBearers, matchPathPattern, loadAllRequirements, loadAllTests, recallByPaths } from './lib/harness-store.mjs';
-import { formatFinalizeFeedback, runCriticReview } from './lib/critic-prompt.mjs';
+import { formatFinalizeFeedback } from './lib/critic-prompt.mjs';
 import { mergeAssertionPool, runAssertionReview } from './lib/assertions.mjs';
 import { extractCommands, findUnsafe, tcShell } from './lib/tc-exec.mjs';
 import { getProjectRoot } from './lib/repo-paths.mjs';
@@ -94,22 +94,15 @@ const main = async () => {
         if (!recalled.length) {
           continue;
         }
-        // 与 PostToolUse critic 同源：断言层（确定性）+ n-gram 分类器，同一改动两套入口一套结论
+        // 终态硬拦只认断言命中（与 gate / PreToolUse 同源）；n-gram 不升 block。
         const assertionHits = await runAssertionReview({
           diff,
           filePaths: [file],
           recalledReqs: mergeAssertionPool(recalled, assertionBearers),
           matchPathPattern
         });
-        const verdict = runCriticReview({ diff, recalledReqs: recalled });
-        const conflictRecords = [...verdict.conflicts];
         for (const hit of assertionHits) {
-          if (!conflictRecords.includes(hit.record)) {
-            conflictRecords.push(hit.record);
-          }
-        }
-        for (const record of conflictRecords) {
-          terminalConflictIds.push(`${record.scope}:${record.id}`);
+          terminalConflictIds.push(`${hit.record.scope}:${hit.record.id}`);
         }
       }
     } catch (error) {

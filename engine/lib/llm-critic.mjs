@@ -189,7 +189,8 @@ export const llmReviewViolation = async ({ record, diff, config, fetchImpl } = {
  * 编排入口：在确定性 verdict 之上叠加 LLM 复核。
  * - 未启用 / 无 provider / 已是 critical → 原样返回
  * - 候选选择：被确定性分类为 weak 的记录中，条款含否定信号且新增侧与其证据集有交集者
- * - 判定 violation=true 的记录升级为 conflict（severity 提到 critical）
+ * - 判定 violation=true 只写入审计（llm.violations / notes），不升级 conflict、不硬拦。
+ *   硬拦只认「## 断言」；LLM 是可选复核层，fail-open。
  */
 export const applyLlmCritic = async ({ verdict, recalledReqs, diff, selectCandidates, config = llmCriticConfig(), fetchImpl } = {}) => {
   if (!config.enabled || !config.provider || !verdict || verdict.severity === 'critical') {
@@ -223,12 +224,7 @@ export const applyLlmCritic = async ({ verdict, recalledReqs, diff, selectCandid
   }
   const next = { ...verdict };
   if (violations.length) {
-    const violatedIds = new Set(violations.map((item) => item.id));
-    next.conflicts = [...(verdict.conflicts ?? []), ...(verdict.weak ?? []).filter((record) => violatedIds.has(`${record.scope}:${record.id}`))];
-    next.weak = (verdict.weak ?? []).filter((record) => !violatedIds.has(`${record.scope}:${record.id}`));
-    next.severity = 'critical';
-    // 三段式反馈：条款引文 / 证据行 / 下一步
-    next.notes = `LLM critic: ${violations.map((item) => `${item.id}「${item.clause_quote.slice(0, 60)}」证据「${item.diff_quote.slice(0, 60)}」→ ${item.next_step}`).join('；')}`;
+    next.notes = `LLM critic（仅审计，不硬拦）: ${violations.map((item) => `${item.id}「${item.clause_quote.slice(0, 60)}」证据「${item.diff_quote.slice(0, 60)}」→ ${item.next_step}`).join('；')}`;
   }
   return {
     verdict: next,

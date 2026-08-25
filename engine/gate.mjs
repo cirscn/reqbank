@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // reqbank gate —— CI / pre-commit 判决入口（P2「one engine, one verdict」）。
-// 与 PostToolUse critic / Stop 终态裁决复用同一套确定性判定链（recallByPaths + 断言层 + runCriticReview），
+// 与 PostToolUse critic / Stop 终态裁决复用同一套硬拦判定（recallByPaths + 断言层；无断言不 block），
 // 本地钩子与流水线不会出现「同一改动两套结论」。
 //
 // 用法：
@@ -13,7 +13,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { extractKeywords, loadAssertionBearers, matchPathPattern, recallByPaths } from './lib/harness-store.mjs';
-import { runCriticReview } from './lib/critic-prompt.mjs';
 import { mergeAssertionPool, runAssertionReview } from './lib/assertions.mjs';
 import { getBusinessFileUnifiedDiff, isBusinessFile } from './lib/dirty-files.mjs';
 import { getProjectRoot, repoPath } from './lib/repo-paths.mjs';
@@ -52,7 +51,7 @@ const diffFor = (file, mode, baseRef) => {
   }
 };
 
-const SOURCE_LABEL = { assertion: '断言命中', ngram: '守卫删除（n-gram）' };
+const SOURCE_LABEL = { assertion: '断言命中' };
 
 const main = async () => {
   const args = process.argv.slice(2);
@@ -94,15 +93,6 @@ const main = async () => {
         source: 'assertion',
         detail: `${hit.kind}:${hit.pattern} —— ${hit.matchedLine.slice(0, 80)}`
       });
-    }
-    const ngramIds = new Set(conflicts.filter((c) => c.file === file).map((c) => c.id));
-    const verdict = runCriticReview({ diff, recalledReqs: recalled });
-    for (const record of verdict.conflicts) {
-      const id = `${record.scope}:${record.id}`;
-      if (ngramIds.has(id)) {
-        continue;
-      }
-      conflicts.push({ id, file, source: 'ngram', detail: '删除侧守卫词消失且无新增侧否定抵消' });
     }
   }
 
@@ -158,7 +148,7 @@ const main = async () => {
       for (const conflict of fresh) {
         console.error(`  - ${conflict.id} @ ${conflict.file}（${SOURCE_LABEL[conflict.source]}）${conflict.detail}`);
       }
-      console.error('修复冲突或更新契约后再提交；确属存量可 `reqbank gate --freeze` 冻结，误报可用条款「## 断言」精确化 pattern。');
+      console.error('修复冲突或更新契约后再提交；确属存量可 `reqbank gate --freeze` 冻结。硬拦只认「## 断言」命中。');
     } else {
       console.log(`[reqbank gate] ✓ 通过（${mode}，扫描 ${files.length} 个文件${known.length ? `，${known.length} 项冻结存量仅警告` : ''}）`);
     }

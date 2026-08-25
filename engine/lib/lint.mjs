@@ -249,4 +249,4 @@ const matchGlob = (file, pattern) => {
  */
 export const lintAssertionCoverage = (requirements) => requirements
   .filter((record) => hasProhibitionSignal(record) && !(record.assertions ?? []).length)
-  .map((record) => `compile-weak: ${record.scope}:${record.id} 含禁止语义但未编译任何断言（「## 断言」节可配 no-delete/forbid-add/forbid-path/forbid-call/no-negate 提高确定性拦截）`);
+  .map((record) => `compile-weak: ${record.scope}:${record.id} 含禁止语义但未编译任何断言——不算存款，n-gram 不硬拦；写入「## 断言」（no-delete/forbid-add/forbid-path/forbid-call/no-negate）后才拦截`);

@@ -23,8 +23,8 @@ const MODULES = [
       ['REQ-002', 'request', '401 回调防抖', '401 触发的跳转回调必须防抖，多个请求同时 401 只允许触发一次跳转。', ['TC-002']],
       ['REQ-003', 'request', '403 无权限跳转排除路径', '403 无权限页跳转必须套用排除路径清单，清单内路径不得重定向到无权限页。', ['TC-003']],
       ['REQ-004', 'request', '错误结构归一 RequestError', '网络与业务错误必须归一为 RequestError 结构再上抛，消费方不得直接接触底层 error 对象。', ['TC-004']],
-      ['REQ-005', 'error-feedback,feedback-dedup', '业务失败提示必须走 showErrorFeedback', '接口返回业务失败时必须用 showErrorFeedback 展示 extractBusinessMessage 提取的文案，并置 skipMessage 与 businessMessageShown 标记防止重复提示；不得用 message.error 直接弹出。', ['TC-005']],
-      ['REQ-006', 'error-feedback,feedback-dedup', '已处理错误必须跳过全局拦截', '全局错误拦截里 isMessageHandledError 命中的已处理错误必须直接 return 跳过，不得再经 toRequestError 抛出——守卫缺失会让同一错误重复弹出。', ['TC-006', 'TC-011']],
+      ['REQ-005', 'error-feedback,feedback-dedup', '业务失败提示必须走 showErrorFeedback', '接口返回业务失败时必须用 showErrorFeedback 展示 extractBusinessMessage 提取的文案，并置 skipMessage 与 businessMessageShown 标记防止重复提示；不得用 message.error 直接弹出。', ['TC-005'], ['REQ-005 | forbid-call | message.error']],
+      ['REQ-006', 'error-feedback,feedback-dedup', '已处理错误必须跳过全局拦截', '全局错误拦截里 isMessageHandledError 命中的已处理错误必须直接 return 跳过，不得再经 toRequestError 抛出——守卫缺失会让同一错误重复弹出。', ['TC-006', 'TC-011'], ['REQ-006 | no-delete | isMessageHandledError']],
       ['REQ-007', 'request', '取消的请求静默跳过提示', '请求被取消（canceled）时属于静默场景，不得再弹错误提示。', ['TC-007']],
       ['REQ-008', 'cancellation,latest-key', 'latestKey 竞态取消', '异步响应回填前必须比对 latestKey，key 不一致的过期响应必须丢弃（race cancellation 防抖），不得覆盖新数据。', ['TC-008']],
       ['REQ-009', 'request', '并发取消走 AbortController', '并发请求必须支持 AbortController 取消语义，组件卸载时统一 abort。', ['TC-009']],
@@ -49,7 +49,7 @@ const MODULES = [
     paths: ['- `src/shared/i18n/` [strong] | i18n,lang-switch,version-guard,load-order,lang-init'],
     reqs: [
       ['REQ-001', 'i18n', '语言切换统一入口', '语言切换必须走 setCurrentLanguage 统一入口，组件不得直接改 locale。', ['TC-001']],
-      ['REQ-002', 'lang-switch,version-guard', '语言切换并发版本守卫', '语言切换并发期间必须递增 languageChangeVersion 版本守卫，回调执行前比对 currentChangeVersion，不一致立即放弃；切换任务必须经 languageChangeQueue 串行执行，不得并发直改。', ['TC-002']],
+      ['REQ-002', 'lang-switch,version-guard', '语言切换并发版本守卫', '语言切换并发期间必须递增 languageChangeVersion 版本守卫，回调执行前比对 currentChangeVersion，不一致立即放弃；切换任务必须经 languageChangeQueue 串行执行，不得并发直改。', ['TC-002'], ['REQ-002 | no-delete | languageChangeVersion', 'REQ-002 | no-negate | languageChanged']],
       ['REQ-003', 'i18n', 'fallback 语言回退中文', 'fallback 语言回退必须是中文 zh-CN，不得回退英文。', ['TC-003']],
       ['REQ-004', 'i18n', '公开页无偏好时兜底判定', '公开页无用户偏好时必须做语言兜底判定，按浏览器语言与默认序取值。', ['TC-004']],
       ['REQ-005', 'i18n', '翻译键缺失告警', '翻译键缺失必须产生告警上报，不得静默渲染空串。', ['TC-005']],
@@ -70,7 +70,7 @@ const MODULES = [
     reqs: [
       ['REQ-001', 'hooks', '页面禁止直接用 axios', '页面组件不得直接用 axios 发请求，必须走统一请求 hooks。', ['TC-001']],
       ['REQ-002', 'data-fetching,loading', 'useFetch loading 语义', 'useFetch 的 loading 状态必须由 hook 统一管理，请求期间为 true，结束必须复位。', ['TC-002']],
-      ['REQ-003', 'error-guard,guard-dedup', 'onError 已处理已取消守卫', 'onError 必须先过守卫：isMessageHandledError 与 isCanceledRequestError 命中时跳过，不得再 showErrorMessage 弹出。', ['TC-003']],
+      ['REQ-003', 'error-guard,guard-dedup', 'onError 已处理已取消守卫', 'onError 必须先过守卫：isMessageHandledError 与 isCanceledRequestError 命中时跳过，不得再 showErrorMessage 弹出。', ['TC-003'], ['REQ-003 | no-delete | isMessageHandledError']],
       ['REQ-004', 'hooks', 'hooks 句柄引用稳定', 'hooks 返回的句柄必须引用稳定，不得每次渲染新建。', ['TC-004']],
       ['REQ-005', 'hooks', '轮询 hook 清理定时器', '轮询类 hook 卸载时必须清理定时器。', ['TC-005']],
       ['REQ-006', 'hooks', '列表加载失败返回空列表', '列表加载失败必须返回空列表并保留分页结构，不得返回 undefined。', ['TC-006']]
@@ -108,7 +108,7 @@ const MODULES = [
     paths: ['- `src/apps/` [strong] | app-arch,route-memory,token-scope'],
     reqs: [
       ['REQ-001', 'app-arch', '双应用共享边界', 'portal 与 admin 共享 src/shared 能力，页面级代码不得跨 app 引用。', ['TC-001']],
-      ['REQ-002', 'route-memory,token-scope', 'hash 路由记忆 sessionStorage', '登录跳转前必须按 shouldRememberHashPath 判定并将 hash 路由写入 sessionStorage（键前缀 bp:last-app-route:），不得丢失回跳目标。', ['TC-002']],
+      ['REQ-002', 'route-memory,token-scope', 'hash 路由记忆 sessionStorage', '登录跳转前必须按 shouldRememberHashPath 判定并将 hash 路由写入 sessionStorage（键前缀 bp:last-app-route:），不得丢失回跳目标。', ['TC-002'], ['REQ-002 | no-delete | shouldRememberHashPath']],
       ['REQ-003', 'app-arch', '前后台 token 存储键隔离', '前后台 token 存储键必须隔离，portal 与 admin 不得共用同一 storage 键。', ['TC-003']]
     ],
     tcs: [
@@ -154,11 +154,13 @@ const writeModule = (def) => {
   const dir = join(ROOT, 'modules', def.name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'index.md'), md([`# ${def.name} 契约`, '', '## 命中路径', '', ...def.paths, '']));
+  const assertionLines = def.reqs.flatMap((req) => req[5] ?? []);
   writeFileSync(join(dir, 'requirements.md'), md([
     `# ${def.name} 需求`, '', '## 索引', '',
     ...def.reqs.map(([id, tags, title, , tcs]) => `${id} | ${tags} | ${tcs.join(',')} | ${title}`),
     '', '## 需求澄清', '',
-    ...def.reqs.flatMap(([id, , , clarification]) => [`${id}: ${clarification}`, ''])
+    ...def.reqs.flatMap(([id, , , clarification]) => [`${id}: ${clarification}`, '']),
+    ...(assertionLines.length ? ['## 断言', '', ...assertionLines, ''] : [])
   ]));
   writeFileSync(join(dir, 'tests.md'), md([
     `# ${def.name} 测试`, '', '## 内容索引', '',

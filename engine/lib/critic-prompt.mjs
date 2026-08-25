@@ -24,7 +24,8 @@ export const formatRecallContext = (records, { cap = RECALL_OUTPUT_CAP, prohibit
   const prohibitions = [];
   const others = [];
   for (const record of records) {
-    if (prohibitions.length < prohibitLimit && hasNegationSignal(recordText(record))) {
+    // L0 只给带断言的存款：没编译成断言的「不得…」空话不占禁止类正文名额。
+    if (prohibitions.length < prohibitLimit && recordHasAssertions(record)) {
       prohibitions.push(record);
     } else {
       others.push(record);
@@ -277,6 +278,9 @@ const hasNegationSignal = (value) => {
 // 条款是否带禁止语义（供 lint 的断言覆盖率检查：有禁止语义却无断言 → compile-weak 警告）
 export const hasProhibitionSignal = (record) => hasNegationSignal(recordText(record));
 
+/** 带「## 断言」的条款才算存款：硬拦与 L0 禁止类正文只认这一类。 */
+export const recordHasAssertions = (record) => (record?.assertions ?? []).length > 0;
+
 const countHits = (tokens, text) => tokens.filter((token) => text.includes(token)).length;
 
 const classifyRecord = (record, diffParts) => {
@@ -290,7 +294,8 @@ const classifyRecord = (record, diffParts) => {
   const removedHasNegation = hasNegationSignal(diffParts.removedText);
   const conflict = removedHits >= 3 && (recordHasNegation || removedHasNegation) && !addedHasNegation;
   if (conflict) {
-    return { kind: 'conflict', addedHits, removedHits, fullHits, addedHasNegation: addedHasNegation };
+    // n-gram 命中只作审计（kind=weak）：硬拦只认「## 断言」。空话条款升 conflict 会让 Stop/gate 乱拦。
+    return { kind: 'weak', ngramConflict: true, addedHits, removedHits, fullHits, addedHasNegation: addedHasNegation };
   }
   if (fullHits >= 3 || (fullHits >= 2 && (record.tags ?? []).some((tag) => diffParts.fullText.includes(tag)))) {
     return { kind: 'covered', addedHits, removedHits, fullHits, addedHasNegation: addedHasNegation };
@@ -329,32 +334,9 @@ export const runCriticReview = ({ diff, recalledReqs }) => {  if (!recalledReqs?
     }
   }
 
-  // P5 L1 标点感知翻转：同操作数布尔三元组的 &&↔|| / 极性互换是确定性语义反转。
-  // 归因给带禁止/守卫语义的召回条款——守卫逻辑被反转正是它们要拦的事。
+  // P5 L1 标点翻转仍计算（评测/审计可看 flips），但不再升 conflict。
+  // 极性翻转要硬拦，写成 no-negate 断言；无断言的「不得…」不是存款。
   const flips = detectBooleanFlip(diff);
-  let flipNote = null;
-  if (flips.length) {
-    for (const record of recalledReqs) {
-      if (!hasProhibitionSignal(record)) continue;
-      if (conflicts.includes(record) || covered.includes(record)) {
-        if (covered.includes(record)) {
-          covered.splice(covered.indexOf(record), 1);
-          conflicts.push(record);
-        }
-        continue;
-      }
-      conflicts.push(record);
-      weak.splice(weak.indexOf(record), 1);
-      classifications.push({
-        id: `${record.scope}:${record.id}`,
-        kind: 'conflict',
-        flip: flips[0]
-      });
-    }
-    if (conflicts.length) {
-      flipNote = `Boolean flip: ${flips.map((f) => f.kind).join(', ')}（同操作数 &&↔|| / 极性互换）`;
-    }
-  }
 
   if (conflicts.length) {
     return {
@@ -364,9 +346,7 @@ export const runCriticReview = ({ diff, recalledReqs }) => {  if (!recalledReqs?
       conflicts,
       classifications,
       flips,
-      notes: flipNote
-        ? `${flipNote} — 守卫语义被反转，需人工确认或 reqbank-ignore 抑制。`
-        : 'Deterministic conflict signal: removed negated/guardrail terms from recalled records without replacement.'
+      notes: 'Deterministic conflict signal: removed negated/guardrail terms from recalled records without replacement.'
     };
   }
   if (weak.length > 0) {

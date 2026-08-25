@@ -30,7 +30,7 @@ V 字段写反引号包裹的命令即可执行；**不得写破坏性命令**�
 ### 5. 自验：召回可达 + 结构合规
 - 模块 `index.md` 登记命中路径与标签：`` - `src/<路径>/` [strong] | <标签> ``
 - 跑 `reqbank scope "<任务>"` 确认能召回；跑 `reqbank check` 过 tag-coverage。
-- 高频被违反的守卫，追加「## 断言」：`REQ-001 | no-delete | <守卫token>`。
+- 没有「## 断言」的条款不算存款、不会硬拦。守卫写成：`REQ-001 | no-delete | <守卫token>`。
 
 ## 禁止事项
 - 不得跳过人审直接写 modules/（`mine` 的候选一律先落 inbox/）。

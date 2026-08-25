@@ -2,6 +2,14 @@
 
 格式：版本（日期）+ 变更要点。`reqbank changelog [版本]` 查看指定版本；不接参数显示最新。
 
+## 0.12.0（2026-08-24）
+
+**硬拦只认断言**
+
+- Stop / gate / critic critical **只认「## 断言」命中**。无断言的「不得…」条款不再经 n-gram 或标点翻转升 conflict、不硬拦、不占 L0 禁止类正文。
+- LLM critic 改为纯审计（记录 violations，不升级 critical）。
+- `check` 的 compile-weak 提示改为：无断言不算存款。
+
 ## 0.11.0（2026-08-24）
 
 **版本体验：升级提醒 + 版本说明**

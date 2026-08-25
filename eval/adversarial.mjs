@@ -137,8 +137,8 @@ const lastLogOf = (root, event, turn) => readFileSync(join(root, '.agentdoc', 'h
   // ATK2 语义翻转（!flag / &&→||）：L1 标点感知 token 拦截（同操作数 &&↔|| / 极性互换）
   criticRun(root, 'atk2', patchOf('src/demo/guard.ts', ['  const ok = user && active;'], ['  const ok = !user || active;']));
   const atk2 = lastLogOf(root, 'PostToolUse', 'atk2');
-  test('ATK-FLIP', '语义翻转（!x / &&→||）拦截：守卫语义条款升 conflict',
-    atk2.critic_severity === 'critical' && (atk2.conflict_ids ?? []).includes('demo:REQ-001'),
+  test('ATK-FLIP', '语义翻转无匹配断言：不升 critical（硬拦只认断言）',
+    atk2.critic_severity !== 'critical' && !(atk2.conflict_ids ?? []).includes('demo:REQ-001'),
     `severity=${atk2.critic_severity} conflicts=${JSON.stringify(atk2.conflict_ids)}`);
 
   // ATK2b 翻转误拦对照：操作数交换/纯重命名不是翻转，不升 conflict

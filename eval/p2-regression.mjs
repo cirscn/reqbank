@@ -129,6 +129,12 @@ const lastLogOf = (root, event, turnId) => readFileSync(join(root, '.agentdoc', 
   const weak = spawnAt(root, BIN, ['check']);
   test('A-CW', 'compile-weak：禁止条款无断言 → 提示（不阻断）',
     weak.status === 0 && /compile-weak.*REQ-001/.test(`${weak.stdout}${weak.stderr}`), `exit=${weak.status}`);
+  criticRun(root, 'p2-ngram', patchOf('src/demo/agent.ts', ['  if (isMessageHandledError(error)) return;'], ['  passthrough();']));
+  const logN = lastLogOf(root, 'PostToolUse', 'p2-ngram');
+  test('A-NGRAM-SOFT', '无断言的禁止条款：n-gram 不升 critical（不算存款）',
+    logN.critic_severity !== 'critical' && (logN.conflict_ids ?? []).length === 0
+    && (logN.assertion_hits ?? []).length === 0,
+    `severity=${logN.critic_severity} conflicts=${JSON.stringify(logN.conflict_ids)}`);
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -275,10 +281,10 @@ const lastLogOf = (root, event, turnId) => readFileSync(join(root, '.agentdoc', 
     verdict: baseVerdict, recalledReqs: [record], diff,
     selectCandidates: candidates[0], config, fetchImpl: goodFetch
   });
-  test('L-4F', '四字段输出：violation + 引文 + 下一步，升级 critical',
-    run1.verdict.severity === 'critical' && run1.llm.violations[0]?.clause_quote === '不得再次弹出同一错误'
+  test('L-4F', '四字段输出：violation + 引文 + 下一步（仅审计，不升 critical）',
+    run1.verdict.severity !== 'critical' && run1.llm.violations[0]?.clause_quote === '不得再次弹出同一错误'
     && run1.llm.violations[0]?.next_step?.includes('守卫'),
-    JSON.stringify(run1.llm.violations[0] ?? {}).slice(0, 120));
+    `severity=${run1.verdict.severity} ${JSON.stringify(run1.llm.violations[0] ?? {}).slice(0, 120)}`);
 
   // 缓存：同 record+diff 第二次不再调用网络
   const run2 = await applyLlmCritic({
