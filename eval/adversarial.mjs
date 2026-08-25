@@ -202,7 +202,8 @@ const lastLogOf = (root, event, turn) => readFileSync(join(root, '.agentdoc', 'h
   rmSync(root, { recursive: true, force: true });
 }
 
-const bpmsAvailable = existsSync(join(BPMS, 'src')) && existsSync(join(BPMS, 'node_modules'));
+const bpmsAvailable = existsSync(join(BPMS, 'src'))
+  && existsSync(join(BPMS, '.agentdoc', 'harness', 'modules', 'request', 'requirements.md'));
 if (!bpmsAvailable) {
   console.log('⏭ 跳过真实仓库用例（REAL-*，需本地 bpms/frontend 夹具与依赖）');
 } else {

@@ -6,8 +6,8 @@
 //   - 预筛不命中 → 零解析成本（无断言回合不碰 WASM）
 //   - 预筛命中且语言有语法包 → 解析新增片段：AST 找到调用/取反才命中，
 //     注释与字符串字面量里的提及被推翻（forbid-call 不误报的核心价值）
-//   - 解析带 ERROR（diff 片段不完整）或无语法包/vendor 缺失 → 保留字符串命中
-//     （AST 是增强不是前提：宁可可抑制的误拦，不可静默放行）
+//   - 解析带 ERROR（diff 片段不完整）或无语法包/vendor 缺失 → 对非注释行保留字符串命中
+//     （AST 是增强不是前提：宁可可抑制的误拦，不可静默放行；整行注释不是执行点，不回退）
 
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -41,6 +41,19 @@ const negationPrefilter = (line, pattern) =>
   || new RegExp(`(^|[^A-Za-z0-9_])not\\s+${escapeRegExp(pattern)}(?![A-Za-z0-9_])`).test(line);
 
 const STRUCTURAL_KINDS = new Set(['forbid-call', 'no-negate']);
+
+/** 整行都是注释：不是执行点。`foo(); // x` 不算。Javadoc 续行 ` * text` 算。 */
+const isCommentOnlyLine = (line) => {
+  const trimmed = String(line ?? '').trim();
+  if (!trimmed) return true;
+  if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('#') || trimmed.startsWith('--')) {
+    return true;
+  }
+  return /^\*(?:\s|\/|$)/.test(trimmed);
+};
+
+/** 去掉行尾 // 注释与行尾空白，用于 no-delete「只加了注释」配对。 */
+const stripTrailComment = (line) => String(line ?? '').replace(/[ \t]*\/\/.*$/, '').replace(/[ \t]+$/, '');
 
 /**
  * 断言池合并：召回集 ∪ 全库断言承载条款（按 scope:id 去重，召回集优先）。
@@ -88,6 +101,7 @@ export const runAssertionReview = async ({ diff, filePaths = [], recalledReqs = 
           ? (line) => negationPrefilter(line, assertion.pattern)
           : (line) => containsPattern(line, assertion.pattern);
         for (const line of added) {
+          if (isCommentOnlyLine(line)) continue;
           if (matcher(line)) {
             structuralCandidates.push({ record, assertion, line });
             break; // 每条断言记一次即可
@@ -95,7 +109,29 @@ export const runAssertionReview = async ({ diff, filePaths = [], recalledReqs = 
         }
         continue;
       }
-      const lines = assertion.kind === 'no-delete' ? removed : added;
+      if (assertion.kind === 'no-delete') {
+        const removedHits = removed.filter((line) => containsPattern(line, assertion.pattern));
+        if (!removedHits.length) continue;
+        const addedPool = added
+          .filter((line) => containsPattern(line, assertion.pattern))
+          .map((line) => ({ strip: stripTrailComment(line), used: false }));
+        let unmatched = null;
+        for (const rem of removedHits) {
+          const want = stripTrailComment(rem);
+          const mate = addedPool.find((item) => !item.used && item.strip === want);
+          if (mate) {
+            mate.used = true;
+          } else {
+            unmatched = rem;
+            break;
+          }
+        }
+        if (unmatched) {
+          hits.push({ record, kind: assertion.kind, pattern: assertion.pattern, matchedLine: unmatched.trim().slice(0, 160), file: filePaths[0] ?? '' });
+        }
+        continue;
+      }
+      const lines = added;
       for (const line of lines) {
         if (containsPattern(line, assertion.pattern)) {
           hits.push({ record, kind: assertion.kind, pattern: assertion.pattern, matchedLine: line.trim().slice(0, 160), file: filePaths[0] ?? '' });
@@ -117,7 +153,10 @@ export const runAssertionReview = async ({ diff, filePaths = [], recalledReqs = 
     analysis = await analyzeFragment({ language: structuralLanguage, code: fragment });
   }
   for (const { record, assertion, line } of structuralCandidates) {
-    let hit = true; // 无语法包 / vendor 缺失 → 字符串命中保留
+    if (isCommentOnlyLine(line)) {
+      continue;
+    }
+    let hit = true; // 无语法包 / vendor 缺失 / 解析 ERROR → 非注释行保留字符串命中
     if (analysis && !analysis.hasError) {
       // 干净解析才允许推翻：AST 里没有真实调用/取反，说明命中的是注释或字符串提及。
       // 成员式 pattern（message.error）与提取的尾段名（error）需两侧对齐：

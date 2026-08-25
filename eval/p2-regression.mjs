@@ -103,6 +103,36 @@ const lastLogOf = (root, event, turnId) => readFileSync(join(root, '.agentdoc', 
     logA.critic_severity === 'critical' && hitA && hitA.pattern === 'isMessageHandledError' && logA.conflict_ids.includes('demo:REQ-001'),
     JSON.stringify(logA.assertion_hits));
 
+  const turnNdCmt = 'p2-nd-cmt';
+  criticRun(root, turnNdCmt, patchOf('src/demo/agent.ts',
+    ['  if (isMessageHandledError(error)) return;'],
+    ['  if (isMessageHandledError(error)) return; // keep']));
+  const logNdCmt = lastLogOf(root, 'PostToolUse', turnNdCmt);
+  test('ND-TRAIL-CMT', 'no-delete：同一守卫行只加行尾注释不拦',
+    logNdCmt.critic_severity !== 'critical'
+    && !(logNdCmt.assertion_hits ?? []).some((h) => h.kind === 'no-delete'),
+    `severity=${logNdCmt.critic_severity} hits=${JSON.stringify(logNdCmt.assertion_hits)}`);
+
+  const turnNdRw = 'p2-nd-rw';
+  criticRun(root, turnNdRw, patchOf('src/demo/agent.ts',
+    ['  if (isMessageHandledError(error)) return;'],
+    ['  if (!isMessageHandledError(error)) return;']));
+  const logNdRw = lastLogOf(root, 'PostToolUse', turnNdRw);
+  test('ND-REWRITE', 'no-delete：改写含 token 的守卫行（极性变化）仍拦',
+    logNdRw.critic_severity === 'critical'
+    && (logNdRw.assertion_hits ?? []).some((h) => h.kind === 'no-delete' && h.pattern === 'isMessageHandledError'),
+    `severity=${logNdRw.critic_severity} hits=${JSON.stringify(logNdRw.assertion_hits)}`);
+
+  const turnNdInj = 'p2-nd-inj';
+  criticRun(root, turnNdInj, patchOf('src/demo/agent.ts',
+    ['  if (isMessageHandledError(error)) return;'],
+    ['  if (otherGuard(error)) return;']));
+  const logNdInj = lastLogOf(root, 'PostToolUse', turnNdInj);
+  test('ND-INJECT', 'no-delete：token 换成别的标识符仍拦',
+    logNdInj.critic_severity === 'critical'
+    && (logNdInj.assertion_hits ?? []).some((h) => h.kind === 'no-delete'),
+    `severity=${logNdInj.critic_severity}`);
+
   const turnB = 'p2a2';
   criticRun(root, turnB, patchOf('src/demo/agent.ts', [], ["  message.error('boom');"]));
   const logB = lastLogOf(root, 'PostToolUse', turnB);

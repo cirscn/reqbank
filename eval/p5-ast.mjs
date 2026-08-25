@@ -177,6 +177,42 @@ TC-002: G=x | W=y | E=z | V=\`node -e "process.exit(0)"\`
     && !(p5b.assertion_hits ?? []).some((h) => h.kind === 'forbid-call'),
     `severity=${p5b.critic_severity}`);
 
+  criticRun('p5-jd', patchOf('src/svc/Ops.java',
+    ['    approveFirst(cmd);'],
+    ['     * 内部会 execRuntimeCommand()，切勿外泄']));
+  const p5jd = lastLogOf(root, 'PostToolUse', 'p5-jd');
+  test('FC-JAVADOC', 'forbid-call：仅 Javadoc 续行提及不拦',
+    p5jd.critic_severity !== 'critical'
+    && !(p5jd.assertion_hits ?? []).some((h) => h.kind === 'forbid-call'),
+    `severity=${p5jd.critic_severity} hits=${JSON.stringify(p5jd.assertion_hits)}`);
+
+  criticRun('p5-lc', patchOf('src/svc/Ops.java',
+    ['    approveFirst(cmd);'],
+    ['    // execRuntimeCommand() 已下线']));
+  const p5lc = lastLogOf(root, 'PostToolUse', 'p5-lc');
+  test('FC-LINE-CMT', 'forbid-call：仅 // 行提及不拦',
+    p5lc.critic_severity !== 'critical'
+    && !(p5lc.assertion_hits ?? []).some((h) => h.kind === 'forbid-call'),
+    `severity=${p5lc.critic_severity}`);
+
+  criticRun('p5-mix', patchOf('src/svc/Ops.java',
+    ['    approveFirst(cmd);'],
+    ['    // 说明：execRuntimeCommand(cmd)', '    execRuntimeCommand(cmd);']));
+  const p5mix = lastLogOf(root, 'PostToolUse', 'p5-mix');
+  test('FC-MIX', 'forbid-call：注释+真实调用仍拦，命中代码行',
+    p5mix.critic_severity === 'critical'
+    && (p5mix.assertion_hits ?? []).some((h) => h.kind === 'forbid-call' && !String(h.line ?? '').trim().startsWith('//')),
+    `severity=${p5mix.critic_severity} line=${JSON.stringify((p5mix.assertion_hits ?? []).map((h) => h.line))}`);
+
+  criticRun('p5-tr', patchOf('src/svc/Ops.java',
+    ['    approveFirst(cmd);'],
+    ['    execRuntimeCommand(']));
+  const p5tr = lastLogOf(root, 'PostToolUse', 'p5-tr');
+  test('FC-TRUNC', 'forbid-call：残缺调用片段解析失败仍字符串回退拦截',
+    p5tr.critic_severity === 'critical'
+    && (p5tr.assertion_hits ?? []).some((h) => h.kind === 'forbid-call'),
+    `severity=${p5tr.critic_severity} ast=${JSON.stringify((p5tr.assertion_hits ?? []).map((h) => h.ast))}`);
+
   // TS !x 翻转拦截（no-negate）
   criticRun('p5c', patchOf('src/svc/guard.ts',
     ['  if (isHandledError(error)) return;'],
