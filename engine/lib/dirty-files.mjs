@@ -28,7 +28,9 @@ const getChangedFiles = () => {
 
 export const isBusinessFile = (file) => (
   !file.startsWith('.agentdoc/')
+  && !file.startsWith('.harness/')
   && !file.startsWith('.codex/')
+  && !file.startsWith('.claude/')
   && file !== 'AGENTS.md'
   && file !== '.gitignore'
   && file !== 'package.json'
@@ -79,12 +81,62 @@ export const getDirtyBusinessFileRecords = () => (
   getDirtyFileRecords().filter((record) => isBusinessFile(record.file))
 );
 
-// 盘上终态 diff（unstaged + staged）：Stop 终态裁决用——不信过程信终态，对实际落盘的改动重算冲突。
+const isTrackedFile = (file) => {
+  try {
+    return git(['ls-files', '--error-unmatch', '--', file]).trim().length > 0;
+  } catch {
+    return false;
+  }
+};
+
+const UNTRACKED_DIFF_BYTES = 1_000_000;
+
+// 未跟踪新文件 `git diff` 为空：合成「全是新增行」的 unified diff，让 forbid-add / forbid-call
+// 能看见内容；超大或二进制只留路径头，forbid-path 仍靠 filePaths 命中。
+const synthesizeUntrackedDiff = (file) => {
+  const absolutePath = repoPath(file);
+  if (!existsSync(absolutePath)) {
+    return '';
+  }
+  let stat;
+  try {
+    stat = statSync(absolutePath);
+  } catch {
+    return '';
+  }
+  if (!stat.isFile()) {
+    return '';
+  }
+  const header = `diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n`;
+  if (stat.size === 0 || stat.size > UNTRACKED_DIFF_BYTES) {
+    return header;
+  }
+  let content;
+  try {
+    content = readFileSync(absolutePath);
+  } catch {
+    return header;
+  }
+  if (content.includes(0)) {
+    return header;
+  }
+  const lines = content.toString('utf8').split('\n');
+  return `${header}@@ -0,0 +1,${lines.length} @@\n${lines.map((line) => `+${line}`).join('\n')}\n`;
+};
+
+// 盘上终态 diff（unstaged + staged + 未跟踪合成）：Stop / gate dirty 用。
 export const getBusinessFileUnifiedDiff = (file) => {
   try {
     const unstaged = git(['diff', '--', file]);
     const staged = git(['diff', '--cached', '--', file]);
-    return `${unstaged}\n${staged}`;
+    const combined = `${unstaged}${unstaged && staged ? '\n' : ''}${staged}`;
+    if (combined.trim()) {
+      return combined;
+    }
+    if (!isTrackedFile(file)) {
+      return synthesizeUntrackedDiff(file);
+    }
+    return '';
   } catch {
     return '';
   }

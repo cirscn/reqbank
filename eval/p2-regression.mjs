@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// P2 回归评测：五项交付——
+// P2 回归评测：五项交付 + 0.13 执法闭合——
 //   ① 条款断言层（no-delete/forbid-add/forbid-path + critic 归因 + compile-weak）
 //   ② pre-critic 写前拦截（PreToolUse deny）
 //   ③ gate 子命令（--staged/--base/dirty + fail-closed）+ B5/B6 修复（HARNESS_GATE / verify --all）
 //   ④ init --gate（pre-commit + CI workflow + claude PreToolUse 注册 + E2E 拒提交）
 //   ⑤ LLM critic 四字段输出 + 子串回验 + 磁盘缓存
+//   ⑥ 空召回断言池 / 未跟踪新文件 / ignore·:warn 四层 / analysis Stop
 // 用法：node eval/p2-regression.mjs
 
 import { spawnSync } from 'node:child_process';
@@ -341,6 +342,125 @@ const lastLogOf = (root, event, turnId) => readFileSync(join(root, '.agentdoc', 
   test('L-VERIFY', '子串回验：编造引文 → 判定丢弃（quote_rejections 计数）',
     run3.verdict.severity === 'ok' && run3.llm.violations.length === 0 && (run3.llm.quote_rejections ?? 0) === 1,
     `severity=${run3.verdict.severity} rejections=${run3.llm.quote_rejections}`);
+  rmSync(root, { recursive: true, force: true });
+}
+
+// ══ ⑥ 0.13 执法闭合：空召回断言池 / 未跟踪新文件 / ignore·:warn 四层 / analysis Stop ══
+{
+  const root = join(tmpdir(), `reqbank-p2-e13-${Date.now().toString(36)}`);
+  buildRoot(root);
+  mkdirSync(join(root, 'src', 'demo'), { recursive: true });
+  writeFileSync(join(root, 'src/demo/agent.ts'), ['export const handle = (error) => {', '  if (isMessageHandledError(error)) return;', '};', ''].join('\n'));
+  gitAt(root, ['init', '-q']);
+  gitAt(root, ['config', 'user.email', 'eval@reqbank']);
+  gitAt(root, ['config', 'user.name', 'reqbank-eval']);
+  gitAt(root, ['add', '.']);
+  gitAt(root, ['commit', '-qm', 'init']);
+
+  criticRun(root, 'e13-unreg', patchOf('src/nowhere/escape.ts', ['  if (isMessageHandledError(error)) return;'], ['  bypass();']));
+  const unreg = lastLogOf(root, 'PostToolUse', 'e13-unreg');
+  test('UNREG-ASSERT', '未登记路径删断言 token → 断言池仍 critical',
+    unreg.critic_severity === 'critical' && (unreg.assertion_hits ?? []).some((h) => h.kind === 'no-delete'),
+    `severity=${unreg.critic_severity} skip=${unreg.skip_reason}`);
+
+  criticRun(root, 'e13-skip', patchOf('README.md', [], ['# hello']));
+  const unregSkip = lastLogOf(root, 'PostToolUse', 'e13-skip');
+  test('UNREG-SKIP', '未登记路径且无断言命中 → 仍 skip no_strong_recall',
+    unregSkip.skip_reason === 'no_strong_recall', `skip=${unregSkip.skip_reason}`);
+
+  writeFileSync(join(root, 'src/demo/leak.ts'), "message.error('boom');\n");
+  const untrackedGate = spawnAt(root, BIN, ['gate']);
+  test('UNTRACKED-GATE', '未 git add 的新文件含 forbid-add → gate exit 1',
+    untrackedGate.status === 1 && `${untrackedGate.stdout}${untrackedGate.stderr}`.includes('demo:REQ-002'),
+    `exit=${untrackedGate.status}`);
+  rmSync(join(root, 'src/demo/leak.ts'), { force: true });
+
+  const preRun = (turnId, extra) => spawnAt(root, join(ENGINE, 'pre-critic.mjs'), [], {
+    input: JSON.stringify({
+      session_id: 'p2', turn_id: turnId, cwd: root, hook_event_name: 'PreToolUse', tool_name: 'Edit',
+      tool_input: extra
+    })
+  });
+  const ignorePre = preRun('e13-pre-ign', {
+    file_path: join(root, 'src/demo/agent.ts'),
+    old_string: '  if (isMessageHandledError(error)) return;',
+    new_string: '  passthrough(); // reqbank-ignore: demo:REQ-001',
+    replace_all: false
+  });
+  const ignorePreLog = lastLogOf(root, 'PreToolUse', 'e13-pre-ign');
+  test('IGNORE-PRE', '写前：reqbank-ignore 不 deny',
+    JSON.parse(ignorePre.stdout).hookSpecificOutput?.permissionDecision !== 'deny'
+    && (ignorePreLog.suppressed_inline ?? []).includes('demo:REQ-001'),
+    `denied=${ignorePreLog?.denied} suppressed=${JSON.stringify(ignorePreLog?.suppressed_inline)}`);
+
+  writeFileSync(join(root, 'src/demo/agent.ts'), [
+    'export const handle = (error) => {',
+    '  passthrough(); // reqbank-ignore: demo:REQ-001',
+    '};',
+    ''
+  ].join('\n'));
+  const ignoreGate = spawnAt(root, BIN, ['gate']);
+  test('IGNORE-GATE', 'gate：reqbank-ignore 不 exit 1',
+    ignoreGate.status === 0, `exit=${ignoreGate.status} out=${`${ignoreGate.stdout}${ignoreGate.stderr}`.slice(0, 120)}`);
+
+  const recall = (turnId, prompt) => spawnAt(root, join(ENGINE, 'recall.mjs'), [], {
+    input: JSON.stringify({ cwd: root, session_id: 'p2-eval', turn_id: turnId, prompt })
+  });
+  const finalize = (turnId) => spawnAt(root, join(ENGINE, 'finalize.mjs'), [], {
+    input: JSON.stringify({ cwd: root, session_id: 'p2-eval', turn_id: turnId })
+  });
+  recall('e13-ign-stop', '修复 src/demo/agent.ts 的错误重复弹出问题');
+  const ignoreStop = finalize('e13-ign-stop');
+  test('IGNORE-STOP', 'Stop：reqbank-ignore 不 block',
+    JSON.parse(ignoreStop.stdout).decision !== 'block',
+    `decision=${JSON.parse(ignoreStop.stdout).decision}`);
+
+  writeFileSync(join(root, 'src/demo/agent.ts'), ['export const handle = (error) => {', '  passthrough();', '};', ''].join('\n'));
+  recall('e13-anal', '分析一下项目的路由架构应该怎么改');
+  const analysisStop = finalize('e13-anal');
+  test('ANALYSIS-STOP', '先脏盘再 analysis 召回：Stop 仍对照 HEAD 硬拦',
+    JSON.parse(analysisStop.stdout).decision === 'block'
+    && String(JSON.parse(analysisStop.stdout).reason || '').includes('demo:REQ-001'),
+    `decision=${JSON.parse(analysisStop.stdout).decision}`);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = join(tmpdir(), `reqbank-p2-warn-${Date.now().toString(36)}`);
+  const REQ_WARN = REQ_WITH_ASSERTIONS.replace(
+    'REQ-001 | guard-a,guard-b | TC-001 | 已处理错误不得重复弹出',
+    'REQ-001 | guard-a,guard-b | TC-001 | active:confirmed:warn | 已处理错误不得重复弹出'
+  );
+  buildRoot(root, REQ_WARN);
+  mkdirSync(join(root, 'src', 'demo'), { recursive: true });
+  writeFileSync(join(root, 'src/demo/agent.ts'), ['export const handle = (error) => {', '  if (isMessageHandledError(error)) return;', '};', ''].join('\n'));
+  gitAt(root, ['init', '-q']);
+  gitAt(root, ['config', 'user.email', 'eval@reqbank']);
+  gitAt(root, ['config', 'user.name', 'reqbank-eval']);
+  gitAt(root, ['add', '.']);
+  gitAt(root, ['commit', '-qm', 'init']);
+
+  const warnPre = spawnAt(root, join(ENGINE, 'pre-critic.mjs'), [], {
+    input: JSON.stringify({
+      session_id: 'p2', turn_id: 'e13-warn-pre', cwd: root, hook_event_name: 'PreToolUse', tool_name: 'Edit',
+      tool_input: {
+        file_path: join(root, 'src/demo/agent.ts'),
+        old_string: '  if (isMessageHandledError(error)) return;',
+        new_string: '  passthrough();',
+        replace_all: false
+      }
+    })
+  });
+  const warnPreLog = lastLogOf(root, 'PreToolUse', 'e13-warn-pre');
+  test('WARN-PRE', ':warn 条款写前不 deny',
+    JSON.parse(warnPre.stdout).hookSpecificOutput?.permissionDecision !== 'deny'
+    && (warnPreLog.warn_downgrades ?? []).includes('demo:REQ-001'),
+    `denied=${warnPreLog?.denied} warns=${JSON.stringify(warnPreLog?.warn_downgrades)}`);
+
+  writeFileSync(join(root, 'src/demo/agent.ts'), ['export const handle = (error) => {', '  passthrough();', '};', ''].join('\n'));
+  const warnGate = spawnAt(root, BIN, ['gate']);
+  test('WARN-GATE', ':warn 条款 gate 不 exit 1',
+    warnGate.status === 0, `exit=${warnGate.status}`);
   rmSync(root, { recursive: true, force: true });
 }
 

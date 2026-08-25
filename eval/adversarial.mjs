@@ -147,11 +147,16 @@ const lastLogOf = (root, event, turn) => readFileSync(join(root, '.agentdoc', 'h
   test('ATK-FLIP-BENIGN', '等价改写（操作数交换 a&&b→b&&a）不误拦',
     atk2b.critic_severity !== 'critical', `severity=${atk2b.critic_severity}`);
 
-  // ATK3 路径逃逸：违规写进未登记路径 → 零召回放行（记录逃生通道；gate/reflect 会提示登记模块）
+  // ATK3 路径逃逸：未登记路径仍走断言池——删守卫 token 硬拦；无断言命中才 skip
   criticRun(root, 'atk3', patchOf('src/nowhere/escape.ts', ['  if (isMessageHandledError(error)) return;'], ['  bypass();']));
   const atk3 = lastLogOf(root, 'PostToolUse', 'atk3');
-  test('ATK-ESCAPE', '路径逃逸：未登记路径零召回（skip_reason 记录，reflect 会建议登记）',
-    atk3.skip_reason === 'no_strong_recall', `skip=${atk3.skip_reason}`);
+  test('ATK-ESCAPE', '路径逃逸删断言 token：未登记路径仍走断言池硬拦',
+    atk3.critic_severity === 'critical' && (atk3.assertion_hits ?? []).some((h) => h.kind === 'no-delete'),
+    `severity=${atk3.critic_severity} skip=${atk3.skip_reason}`);
+  criticRun(root, 'atk3b', patchOf('src/nowhere/notes.md', [], ['# scratch']));
+  const atk3b = lastLogOf(root, 'PostToolUse', 'atk3b');
+  test('ATK-ESCAPE-NL', '未登记路径且无断言命中：仍 skip no_strong_recall',
+    atk3b.skip_reason === 'no_strong_recall', `skip=${atk3b.skip_reason}`);
 
   // ATK4 抑制滥用：带 reqbank-ignore 的真违规 → 降级（counted）；去掉注释再违规 → 照拦
   criticRun(root, 'atk4a', patchOf('src/demo/guard.ts', [GUARD_LINES[0]], ['  x(); // reqbank-ignore: demo:REQ-001']));

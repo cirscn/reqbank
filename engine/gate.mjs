@@ -15,6 +15,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { extractKeywords, loadAssertionBearers, matchPathPattern, recallByPaths } from './lib/harness-store.mjs';
 import { mergeAssertionPool, runAssertionReview } from './lib/assertions.mjs';
 import { getBusinessFileUnifiedDiff, isBusinessFile } from './lib/dirty-files.mjs';
+import { partitionAssertionHits } from './lib/enforcement.mjs';
 import { getProjectRoot, repoPath } from './lib/repo-paths.mjs';
 import { appendLog } from './lib/learning-log.mjs';
 
@@ -67,32 +68,38 @@ const main = async () => {
   const files = changedFilesFor(mode, baseRef);
   const assertionBearers = loadAssertionBearers(); // 循环外一次：避免每文件全库重解析
   const conflicts = [];
+  const warnedHits = [];
+  const ignoredHits = [];
   for (const file of files) {
     const diff = diffFor(file, mode, baseRef);
     if (!diff.trim()) {
-      continue; // untracked 新文件无 git diff、或 diff 为空
+      continue;
     }
     const recalled = recallByPaths([file], {
       keywords: extractKeywords(diff),
       recordKind: 'req-only',
       moduleQuota: 2
     });
-    if (!recalled.length) {
-      continue;
-    }
     const assertionHits = await runAssertionReview({
       diff,
       filePaths: [file],
       recalledReqs: mergeAssertionPool(recalled, assertionBearers),
       matchPathPattern
     });
-    for (const hit of assertionHits) {
+    const { blocking, warned, ignored } = partitionAssertionHits(assertionHits, diff);
+    for (const hit of blocking) {
       conflicts.push({
-        id: `${hit.record.scope}:${hit.record.id}`,
+        id: hit.scopedId,
         file,
         source: 'assertion',
         detail: `${hit.kind}:${hit.pattern} —— ${hit.matchedLine.slice(0, 80)}`
       });
+    }
+    for (const hit of warned) {
+      warnedHits.push({ id: hit.scopedId, file, detail: `${hit.kind}:${hit.pattern}` });
+    }
+    for (const hit of ignored) {
+      ignoredHits.push({ id: hit.scopedId, file, detail: `${hit.kind}:${hit.pattern}` });
     }
   }
 
@@ -134,14 +141,25 @@ const main = async () => {
     conflict_ids: [...new Set(fresh.map((c) => c.id))],
     frozen_conflict_ids: [...new Set(known.map((c) => c.id))],
     conflicts: fresh,
+    suppressed_inline: [...new Set(ignoredHits.map((item) => item.id))],
+    warn_downgrades: [...new Set(warnedHits.map((item) => item.id))],
     passed: fresh.length === 0
   });
 
   if (asJson) {
-    console.log(JSON.stringify({ passed: fresh.length === 0, mode, files: files.length, frozen: known.length, conflicts: fresh }, null, 2));
+    console.log(JSON.stringify({
+      passed: fresh.length === 0, mode, files: files.length, frozen: known.length, conflicts: fresh,
+      warnings: warnedHits, suppressed: ignoredHits
+    }, null, 2));
   } else {
     for (const conflict of known) {
       console.error(`  ~ ${conflict.id} @ ${conflict.file}（冻结存量，仅警告）${conflict.detail}`);
+    }
+    for (const hit of warnedHits) {
+      console.error(`  ~ ${hit.id} @ ${hit.file}（:warn 降级，仅警告）${hit.detail}`);
+    }
+    for (const hit of ignoredHits) {
+      console.error(`  ~ ${hit.id} @ ${hit.file}（reqbank-ignore，仅警告）${hit.detail}`);
     }
     if (fresh.length) {
       console.error(`[reqbank gate] ✗ ${fresh.length} 项新增确定性冲突：`);
@@ -150,7 +168,12 @@ const main = async () => {
       }
       console.error('修复冲突或更新契约后再提交；确属存量可 `reqbank gate --freeze` 冻结。硬拦只认「## 断言」命中。');
     } else {
-      console.log(`[reqbank gate] ✓ 通过（${mode}，扫描 ${files.length} 个文件${known.length ? `，${known.length} 项冻结存量仅警告` : ''}）`);
+      const extras = [
+        known.length ? `${known.length} 项冻结存量仅警告` : '',
+        warnedHits.length ? `${warnedHits.length} 项 :warn` : '',
+        ignoredHits.length ? `${ignoredHits.length} 项 ignore` : ''
+      ].filter(Boolean);
+      console.log(`[reqbank gate] ✓ 通过（${mode}，扫描 ${files.length} 个文件${extras.length ? `，${extras.join('，')}` : ''}）`);
     }
   }
   process.exit(fresh.length ? 1 : 0);

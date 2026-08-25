@@ -7,6 +7,7 @@
 
 import { loadAssertionBearers, matchPathPattern, recallByPaths } from './lib/harness-store.mjs';
 import { ASSERTION_FEEDBACK, mergeAssertionPool, runAssertionReview } from './lib/assertions.mjs';
+import { partitionAssertionHits } from './lib/enforcement.mjs';
 import { appendLog, appendPayloadSample, parseHookPayload, readHookStdin } from './lib/learning-log.mjs';
 import { normalizeChangedFilePath, normalizeClaudeCodeEdit } from './lib/patch-diff.mjs';
 
@@ -45,8 +46,8 @@ const main = async () => {
     recalledReqs: mergeAssertionPool(recalledReqs, loadAssertionBearers()),
     matchPathPattern
   });
-
-  const denied = hits.length > 0;
+  const { blocking, warned, ignored } = partitionAssertionHits(hits, diff);
+  const denied = blocking.length > 0;
   const output = denied
     ? {
         hookSpecificOutput: {
@@ -54,10 +55,10 @@ const main = async () => {
           permissionDecision: 'deny',
           permissionDecisionReason: [
             'reqbank 条款断言拦截（写前）：',
-            ...hits.slice(0, 4).map((hit) =>
+            ...blocking.slice(0, 4).map((hit) =>
               `- ${hit.record.scope}:${hit.record.id} ${hit.kind}:${hit.pattern} —— 命中行：${hit.matchedLine.slice(0, 80)}`
             ),
-            `下一步：${ASSERTION_FEEDBACK[hits[0].kind]}`
+            `下一步：${ASSERTION_FEEDBACK[blocking[0].kind]}`
           ].join('\n')
         }
       }
@@ -73,6 +74,8 @@ const main = async () => {
     recall_path_candidates: filePaths,
     recall_ids: recalledReqs.map((record) => `${record.scope}:${record.id}`),
     assertion_hits: hits.map((hit) => ({ id: `${hit.record.scope}:${hit.record.id}`, kind: hit.kind, pattern: hit.pattern, line: hit.matchedLine })),
+    suppressed_inline: ignored.map((hit) => hit.scopedId),
+    warn_downgrades: warned.map((hit) => hit.scopedId),
     gate_mode: denied ? 'hard-block' : 'observe',
     denied
   });

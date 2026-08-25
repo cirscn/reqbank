@@ -5,11 +5,10 @@
 import { extractKeywords, loadAssertionBearers, matchPathPattern, recallByPaths } from './lib/harness-store.mjs';
 import { mergeAssertionPool, runAssertionReview, ASSERTION_FEEDBACK } from './lib/assertions.mjs';
 import { formatCriticVerdict, runCriticReview, selectProhibitionCandidates } from './lib/critic-prompt.mjs';
+import { formatScopedId, partitionRecords, uniqueRecords } from './lib/enforcement.mjs';
 import { applyLlmCritic } from './lib/llm-critic.mjs';
 import { appendLog, appendPayloadSample, findEventsByTurn, parseHookPayload, readHookStdin } from './lib/learning-log.mjs';
 import { extractChangedFilePaths, extractChangedLinesFromApplyPatch, normalizeChangedFilePath, normalizeClaudeCodeEdit } from './lib/patch-diff.mjs';
-
-const formatScopedId = (record) => `${record.scope}:${record.id}`;
 
 // P2 断言层命中 → 并入 verdict：升级 conflict、写入归因分类。
 // 断言冲突是确定性的（闭集规则、零 LLM），优先级高于 n-gram 分类结果。
@@ -70,7 +69,15 @@ const main = async () => {
     moduleQuota: 2
   });
 
-  if (recalledReqs.length === 0) {
+  // 断言层在 n-gram 之前：闭集规则匹配。路径召回为空仍扫断言池——未登记路径删守卫 token 也硬拦。
+  const assertionHits = await runAssertionReview({
+    diff,
+    filePaths,
+    recalledReqs: mergeAssertionPool(recalledReqs, loadAssertionBearers()),
+    matchPathPattern
+  });
+
+  if (recalledReqs.length === 0 && assertionHits.length === 0) {
     process.stdout.write(JSON.stringify({}));
     appendLog({
       event: 'PostToolUse',
@@ -106,15 +113,6 @@ const main = async () => {
     return;
   }
 
-  // 断言层在 n-gram 分类器之前：闭集规则匹配，命中即确定性 conflict（含归因）
-  // P5：断言池 = 召回集 ∪ 全库断言承载条款——跨模块违规不再依赖路径召回
-  const assertionHits = await runAssertionReview({
-    diff,
-    filePaths,
-    recalledReqs: mergeAssertionPool(recalledReqs, loadAssertionBearers()),
-    matchPathPattern
-  });
-
   let verdict = runCriticReview({ diff, recalledReqs });
   if (assertionHits.length) {
     verdict = mergeAssertionHits(verdict, assertionHits);
@@ -133,37 +131,19 @@ const main = async () => {
   } catch (error) {
     llmMeta = { enabled: true, checked: [], violations: [], skippedReason: `error:${error.message}` };
   }
-  // P3 执法分级与内联抑制（抑制必须可见可数——BULDEE「documented, counted suppression」）：
-  //  - diff 中出现 `reqbank-ignore: <scope:id>` → 该条款冲突降级 warning（记 suppressed_inline）
-  //  - 条款索引第 5 列带 :warn → conflict 降级 warning（记 warn_downgrades）
-  const suppressedInline = [];
-  const warnDowngrades = [];
-  if (verdict.conflicts?.length) {
-    const diffText = String(diff);
-    const downgraded = [];
-    const keptConflicts = [];
-    for (const record of verdict.conflicts) {
-      const scopedId = formatScopedId(record);
-      if (diffText.includes(`reqbank-ignore: ${scopedId}`)) {
-        suppressedInline.push(scopedId);
-        downgraded.push(record);
-      } else if (record.enforcement === 'warn') {
-        warnDowngrades.push(scopedId);
-        downgraded.push(record);
-      } else {
-        keptConflicts.push(record);
-      }
-    }
-    if (downgraded.length) {
-      const weak = [...(verdict.weak ?? []), ...downgraded];
-      verdict = {
-        ...verdict,
-        conflicts: keptConflicts,
-        weak,
-        severity: keptConflicts.length ? 'critical' : weak.length ? 'warning' : 'ok',
-        notes: `${verdict.notes ?? ''}${verdict.notes ? '；' : ''}P3 降级：内联抑制 ${suppressedInline.length}、warn 档 ${warnDowngrades.length}`.trim()
-      };
-    }
+  // P3 执法分级：ignore / :warn 与 PreToolUse / Stop / gate 同口径（降级不硬拦，且 counted）。
+  const leftover = partitionRecords(verdict.conflicts ?? [], diff);
+  const suppressedInline = leftover.ignored.map(formatScopedId);
+  const warnDowngrades = leftover.warned.map(formatScopedId);
+  if (leftover.ignored.length || leftover.warned.length) {
+    const weak = uniqueRecords([...(verdict.weak ?? []), ...leftover.ignored, ...leftover.warned]);
+    verdict = {
+      ...verdict,
+      conflicts: leftover.blocking,
+      weak,
+      severity: leftover.blocking.length ? 'critical' : weak.length ? 'warning' : 'ok',
+      notes: `${verdict.notes ?? ''}${verdict.notes ? '；' : ''}P3 降级：内联抑制 ${suppressedInline.length}、warn 档 ${warnDowngrades.length}`.trim()
+    };
   }
 
   const feedback = formatCriticVerdict(verdict);
@@ -227,7 +207,7 @@ const main = async () => {
     additional_context_emitted: shouldEmitContext,
     feedback_key: feedbackKey,
     context_chars: shouldEmitContext ? feedback.length : 0,
-    recall_confidence: 'path_strong',
+    recall_confidence: recalledReqs.length ? 'path_strong' : 'assertion_pool',
     suppressed_reason: shouldEmitContext ? null : alreadyEmitted ? 'duplicate_context' : verdict.severity === 'warning' ? 'weak_semantic_only' : 'semantic_covered',
     recall_modules: Array.from(new Set(recalledReqs.map((record) => record.scope)))
   });

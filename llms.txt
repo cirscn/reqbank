@@ -70,7 +70,7 @@ tail -1 .agentdoc/harness/learning-log.jsonl   # 有新事件行 = 钩子已在�
 | `update` | `--git` | npm registry 拉最新（默认）或 git 远端；只替换 `.harness/*`，绝不动真源 |
 | `smoke` / `version` | — | 临时仓库全链路自检 / 打印版本 |
 
-格式补充：requirements.md `## 断言` 节 `REQ-001 | no-delete|forbid-add|forbid-path|forbid-call|no-negate | pattern` 才硬拦（写前 deny / Stop block / gate）；无断言的「不得」条款不算存款。索引第 5 列 `active:confirmed` 可携带状态/置信度/`:warn` 执法档；内联抑制 `reqbank-ignore: <scope:id>`（可见可数）。
+格式补充：requirements.md `## 断言` 节 `REQ-001 | no-delete|forbid-add|forbid-path|forbid-call|no-negate | pattern` 才硬拦（写前 deny / Stop block / gate）；无断言的「不得」条款不算存款。路径召回为空仍扫断言池；未跟踪新文件 gate/Stop 合成新增 diff。索引第 5 列 `active:confirmed` 可携带状态/置信度/`:warn` 执法档；内联抑制 `reqbank-ignore: <scope:id>`（可见可数）；`:warn` / ignore 四层同口径。Stop 对 analysis 也审盘上脏文件。
 
 ## 钩子行为（引擎只有一套，四事件）
 

@@ -2,6 +2,15 @@
 
 格式：版本（日期）+ 变更要点。`reqbank changelog [版本]` 查看指定版本；不接参数显示最新。
 
+## 0.13.0（2026-08-25）
+
+**执法闭合（硬拦只认断言，补四条引擎洞）**
+
+- 路径召回为空仍扫描断言池：未登记路径删守卫 token 也会硬拦；无断言命中才记 `no_strong_recall`。
+- 未 `git add` 的新业务文件：gate / Stop 合成新增 diff，不再空 diff 漏拦。
+- `reqbank-ignore` 与 `:warn` 在 PreToolUse / critic / Stop / gate 四层同口径（降级不硬拦，且 counted）。
+- Stop 终态：analysis 回合也对照 HEAD 审当前脏文件；无 UserPromptSubmit 事件仍不扫全库（未知 turn_id 不误伤）。
+
 ## 0.12.1（2026-08-25）
 
 **断言假阳性**

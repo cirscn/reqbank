@@ -31,6 +31,7 @@ V 字段写反引号包裹的命令即可执行；**不得写破坏性命令**�
 - 模块 `index.md` 登记命中路径与标签：`` - `src/<路径>/` [strong] | <标签> ``
 - 跑 `reqbank scope "<任务>"` 确认能召回；跑 `reqbank check` 过 tag-coverage。
 - 没有「## 断言」的条款不算存款、不会硬拦。守卫写成：`REQ-001 | no-delete | <守卫token>`。
+- 误报出口：diff 里写 `reqbank-ignore: <scope:id>`，或索引第 5 列加 `:warn`——写前/critic/Stop/gate 都认，且必须可见可数。
 
 ## 禁止事项
 - 不得跳过人审直接写 modules/（`mine` 的候选一律先落 inbox/）。

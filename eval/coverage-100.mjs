@@ -535,11 +535,11 @@ t('G05', 'G-Stop门禁', '坏 payload 走硬门禁（记录并 block）', () => 
   ok(result.status === 0, `exit ${result.status}`);
   ok(JSON.parse(result.stdout).decision === 'block', `out=${result.stdout}`);
 });
-t('G06', 'G-Stop门禁', '分析类回合不做脏文件审计（gate skipped）', () => {
+t('G06', 'G-Stop门禁', '分析类回合仍审盘上脏文件（gate audit）', () => {
   recallHook('分析一下项目的路由架构应该怎么改', `t-${RUN}-t-g06`);
   finalizeHook(`t-${RUN}-t-g06`);
   const record = lastLog('Stop', (e) => e.turn_id === `t-${RUN}-t-g06`);
-  ok(record.dirty_business_file_gate_mode === 'skipped', `gate=${record.dirty_business_file_gate_mode}`);
+  ok(record.dirty_business_file_gate_mode === 'audit', `gate=${record.dirty_business_file_gate_mode}`);
 });
 t('G07', 'G-Stop门禁', 'Stop 日志含全库 REQ 计数（36）', () => {
   const record = lastLog('Stop', (e) => e.turn_id === G01_TURN);

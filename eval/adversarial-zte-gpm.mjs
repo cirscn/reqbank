@@ -359,8 +359,9 @@ public class RedisAdminLeak {
 }
 `);
   const gUntracked = spawnAt(root, BIN, ['gate']);
-  expectHole('H-UNTRACKED', '新文件未 git add：gate 空 diff 漏拦裸 Resource',
-    gUntracked.status === 0, `exit=${gUntracked.status}`);
+  expectBlock('B-UNTRACKED', '新文件未 git add：合成 diff 拦裸 Resource',
+    gUntracked.status === 1 && `${gUntracked.stdout}${gUntracked.stderr}`.includes('redis-inject:REQ-001'),
+    `exit=${gUntracked.status}`);
   rmSync(join(root, leakFile), { force: true });
 
   critic(root, 'h-ref', patchOf(REDIS, [], ['        Runnable r = this::getMqSplitCount;']));
@@ -414,8 +415,8 @@ public class RedisAdminLeak {
   critic(root, 'h-ignore', patchOf(REDIS, ['    @Autowired'],
     ['    @Resource private StringRedisTemplate redisTemplate; // reqbank-ignore: redis-inject:REQ-001']));
   const ign = lastLog(root, 'PostToolUse', 'h-ignore');
-  expectHole('H-IGNORE-CRITIC', 'critic 看到 reqbank-ignore 降级（写前/gate 仍可能拦）',
-    ign?.critic_severity !== 'critical',
+  expectAllow('A-IGNORE', 'reqbank-ignore 四层同口径：critic 不升 critical',
+    ign?.critic_severity !== 'critical' && (ign?.suppressed_inline ?? []).includes('redis-inject:REQ-001'),
     `sev=${ign?.critic_severity} suppressed=${JSON.stringify(ign?.suppressed_inline)}`);
 
   writeFileSync(join(root, REDIS),
@@ -426,8 +427,8 @@ public class RedisAdminLeak {
   });
   let stopAnalOut = {};
   try { stopAnalOut = JSON.parse(stopAnal.stdout || '{}'); } catch { stopAnalOut = {}; }
-  expectHole('H-ANALYSIS-STOP', 'prompt=analysis 时 Stop 终态可能不审脏文件',
-    stopAnalOut.decision !== 'block', `decision=${stopAnalOut.decision}`);
+  expectBlock('B-ANALYSIS-STOP', 'analysis 回合仍审盘上脏文件：Stop block',
+    stopAnalOut.decision === 'block', `decision=${stopAnalOut.decision}`);
   gitAt(root, ['checkout', '--', REDIS]);
 
   critic(root, 'h-paren', patchOf(GUEST, ['        if (!path.startsWith("/guest/")) {'], ['        if (!(path.startsWith("/guest/"))) {']));

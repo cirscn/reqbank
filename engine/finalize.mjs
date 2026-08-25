@@ -3,10 +3,11 @@
 // harness failures. Weak semantic critic signals stay in the audit log.
 
 import { spawnSync } from 'node:child_process';
-import { getBusinessFileUnifiedDiff, getDirtyBusinessFileChangesSinceBaseline } from './lib/dirty-files.mjs';
+import { getBusinessFileUnifiedDiff, getDirtyBusinessFileChangesSinceBaseline, getDirtyBusinessFileRecords } from './lib/dirty-files.mjs';
 import { extractKeywords, loadAssertionBearers, matchPathPattern, loadAllRequirements, loadAllTests, recallByPaths } from './lib/harness-store.mjs';
 import { formatFinalizeFeedback } from './lib/critic-prompt.mjs';
 import { mergeAssertionPool, runAssertionReview } from './lib/assertions.mjs';
+import { partitionAssertionHits } from './lib/enforcement.mjs';
 import { extractCommands, findUnsafe, tcShell } from './lib/tc-exec.mjs';
 import { getProjectRoot } from './lib/repo-paths.mjs';
 import { appendLog, appendPayloadSample, findEventsByTurn, parseHookPayload, readHookStdin } from './lib/learning-log.mjs';
@@ -16,7 +17,7 @@ const DIRTY_FILE_LOG_LIMIT = 20;
 const shouldAuditDirtyFiles = (turnEvents) => {
   const userPromptEvents = turnEvents.filter((event) => event.event === 'UserPromptSubmit');
   if (!userPromptEvents.length) {
-    return false;
+    return false; // 未知 turn_id：不扫全库脏文件
   }
 
   const promptKinds = userPromptEvents
@@ -25,7 +26,7 @@ const shouldAuditDirtyFiles = (turnEvents) => {
   if (!promptKinds.length) {
     return true;
   }
-  return promptKinds.some((kind) => ['implementation', 'verification', 'unknown'].includes(kind));
+  return promptKinds.some((kind) => ['implementation', 'verification', 'unknown', 'analysis'].includes(kind));
 };
 
 const getDirtyBusinessFileBaseline = (turnEvents) => {
@@ -75,9 +76,13 @@ const main = async () => {
   // 取盘上 git diff（unstaged+staged），复用确定性分类器对照条款重算。
   // 此前只回放最后一条 critic 事件：先违规编辑、再做一次干净编辑即可让 Stop 放行，违规仍留在盘上。
   const terminalConflictIds = [];
-  // newFiles 一并纳入：对 baseline 而言"新出现"的脏文件，可能是刚提交过的文件被改（无 critic 事件也要裁决）；
-  // 真正的新建文件 git diff 为空，自然跳过。
-  const terminalFiles = [...new Set([...changedExistingBusinessFiles, ...newBusinessFiles])];
+  const terminalSuppressed = [];
+  const terminalWarns = [];
+  // 对照 HEAD 审当前全部脏业务文件：analysis 回合若在召回前已经把违规写进盘，baseline 会把脏当存量。
+  // 无 UserPromptSubmit（未知 turn_id）不扫全库——G04。
+  const terminalFiles = auditDirtyFiles
+    ? [...new Set(getDirtyBusinessFileRecords().map((record) => record.file))]
+    : [];
   const assertionBearers = auditDirtyFiles && terminalFiles.length ? loadAssertionBearers() : [];
   if (auditDirtyFiles && terminalFiles.length) {
     try {
@@ -91,18 +96,21 @@ const main = async () => {
           recordKind: 'req-only',
           moduleQuota: 2
         });
-        if (!recalled.length) {
-          continue;
-        }
-        // 终态硬拦只认断言命中（与 gate / PreToolUse 同源）；n-gram 不升 block。
         const assertionHits = await runAssertionReview({
           diff,
           filePaths: [file],
           recalledReqs: mergeAssertionPool(recalled, assertionBearers),
           matchPathPattern
         });
-        for (const hit of assertionHits) {
-          terminalConflictIds.push(`${hit.record.scope}:${hit.record.id}`);
+        const { blocking, warned, ignored } = partitionAssertionHits(assertionHits, diff);
+        for (const hit of blocking) {
+          terminalConflictIds.push(hit.scopedId);
+        }
+        for (const hit of ignored) {
+          terminalSuppressed.push(hit.scopedId);
+        }
+        for (const hit of warned) {
+          terminalWarns.push(hit.scopedId);
         }
       }
     } catch (error) {
@@ -186,6 +194,8 @@ const main = async () => {
     parse_error: parseError?.message ?? null,
     issues,
     terminal_conflict_ids: [...new Set(terminalConflictIds)],
+    suppressed_inline: [...new Set(terminalSuppressed)],
+    warn_downgrades: [...new Set(terminalWarns)],
     stop_tc_results: stopTcResults,
     stop_tc_downgrades: stopTcDowngrades,
     decision: blocked ? 'block' : 'allow',
