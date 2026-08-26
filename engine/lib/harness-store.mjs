@@ -18,6 +18,9 @@ const harnessRoot = () => {
 
 const readText = (path) => readFileSync(path, 'utf8');
 
+// 模板在各清单节内留有 <!-- 格式：… --> 格式提示注释；解析器一律跳过，不得当作登记项。
+const isCommentLine = (line) => line.trim().startsWith('<!--');
+
 // P4 检索缓存：mtime 未变的文件复用上一次解析文本。修复「一次 PostToolUse = 两层全库扫描」
 //（recallByPaths → findAllModuleMatches 每文件重复 listModulesWithMeta → 全部 index.md 重解析）。
 // 进程内生效（每个钩子是新进程），无需失效协议——真源每回合最多改一次，mtime 是充分信号。
@@ -135,7 +138,7 @@ const parseRequirements = (file, scope) => {
           assertionsByReq.set(match[1], []);
         }
         assertionsByReq.get(match[1]).push({ kind: match[2], pattern: match[3].trim() });
-      } else if (line.trim() && !line.startsWith('#')) {
+      } else if (line.trim() && !line.startsWith('#') && !isCommentLine(line)) {
         parseWarnings.push({ kind: 'warning', code: 'assertion-format', message: `${file} 断言行格式无法识别（应为 REQ-id | no-delete|forbid-add|forbid-path|forbid-call|no-negate | pattern）：${line.trim().slice(0, 60)}` });
       }
     }
@@ -384,7 +387,7 @@ export const listPendingModules = () => {
       inSection = line.replace(/^##\s+/, '').trim() === '待初始化高风险模块';
       continue;
     }
-    if (inSection && line.includes('|')) {
+    if (inSection && line.includes('|') && !isCommentLine(line)) {
       const parts = line.split('|').map((part) => part.trim());
       if (parts.length >= 3) {
         pendings.push({
@@ -411,7 +414,7 @@ export const listRegisteredModules = () => {
       inSection = line.replace(/^##\s+/, '').trim() === '已建模块';
       continue;
     }
-    if (inSection && line.includes('|')) {
+    if (inSection && line.includes('|') && !isCommentLine(line)) {
       const name = line.split('|').map((part) => part.trim())[0].replace(/^- /, '');
       if (name && !name.startsWith('#')) {
         names.push(name);

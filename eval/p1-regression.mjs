@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const KIT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ENGINE = join(KIT_ROOT, 'engine');
@@ -88,6 +88,27 @@ const buildRoot = (root, requirementsMd = REQ_MD, testsMd = TESTS_MD, registered
   const clean = spawnAt(root, BIN, ['check']);
   test('T0', '干净真源 check 通过（trace-integrity 不误报）', clean.status === 0,
     clean.status === 0 ? '' : `stderr=${clean.stderr.trim().slice(0, 300)}`);
+
+  // T0b 注释行免疫（v0.14.1 修复）：官方模板在已建模块/待初始化节内留 <!-- 格式提示 -->，
+  // 三个清单解析器（已建/待初始化/断言行）都不得把注释当作登记项或格式违规。
+  buildRoot(root);
+  writeFileSync(join(root, '.agentdoc', 'harness', 'index.md'), md([
+    '# 索引', '', '## 已建模块', '',
+    '<!-- 格式：模块名 | .agentdoc/harness/modules/<name>/ | 标签a,标签b -->',
+    'demo | .agentdoc/harness/modules/demo/ | demo 契约',
+    '', '## 待初始化高风险模块', '',
+    '<!-- 格式：模块名 | 路径1,路径2 | 标签a,标签b -->', ''
+  ]));
+  const tplCheck = spawnAt(root, BIN, ['check']);
+  const storeUrl = pathToFileURL(join(ENGINE, 'lib', 'harness-store.mjs')).href;
+  const probe = spawnAt(root, '--input-type=module', ['-e',
+    `const m = await import(${JSON.stringify(storeUrl)}); console.log(JSON.stringify({ registered: m.listRegisteredModules(), pending: m.listPendingModules().map((p) => p.name) }));`]);
+  let parsed = { registered: [], pending: [] };
+  try { parsed = JSON.parse(probe.stdout.trim()); } catch {}
+  test('T0b', '模板 <!-- 注释行 --> 不被当作登记项（无幽灵模块、无 B9 漂移误报）',
+    tplCheck.status === 0 && !/B9|漂移/.test(`${tplCheck.stdout}${tplCheck.stderr}`)
+    && parsed.registered.join(',') === 'demo' && parsed.pending.length === 0,
+    `check exit=${tplCheck.status}，registered=${JSON.stringify(parsed.registered)}，pending=${JSON.stringify(parsed.pending)}`);
 
   buildRoot(root, reqs('REQ-001 | error-feedback,guard-dedup | TC-999 |')); // 悬挂 TC
   const dangling = spawnAt(root, BIN, ['check']);
