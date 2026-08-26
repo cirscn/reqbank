@@ -2,6 +2,15 @@
 
 格式：版本（日期）+ 变更要点。`reqbank changelog [版本]` 查看指定版本；不接参数显示最新。
 
+## 0.15.0（2026-08-26）
+
+**钩子命令免 shell 特性：Windows 任意 shell 可用**
+
+- claude / codex 适配器的钩子命令从 `node "$(git rev-parse --show-toplevel)/…"` 改为相对路径 `node .harness/engine/<hook>.mjs`（依赖钩子运行时 cwd = 项目根——三家客户端的约定行为）。
+- 修复场景（Windows 真实复现）：从 cmd/PowerShell 启动的 agent 里 `$(...)` 空展开，node 收到 `/.harness/engine/x.mjs` → MODULE_NOT_FOUND → 钩子 exit 1，且引擎零日志（学习日志无痕迹即此特征）。v0.14.x 需从 Git Bash 启动客户端规避。
+- p2 新增 I-PORT 可移植性不变量：渲染产物所有钩子命令不得含 `$(`、必须相对路径。
+- ZCode 适配器不受影响（`${ZCODE_PROJECT_DIR}` 由客户端展开，本就无 shell 依赖）。
+
 ## 0.14.1（2026-08-26）
 
 **修复：模板注释行被清单解析器误当登记项**

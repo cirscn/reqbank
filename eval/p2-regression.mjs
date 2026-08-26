@@ -273,6 +273,16 @@ const lastLogOf = (root, event, turnId) => readFileSync(join(root, '.agentdoc', 
     && readFileSync(preCommit, 'utf8').split('\n').filter((l) => l.includes('gate --staged')).length === 1
     && JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8')).hooks.PreToolUse.length === 1);
 
+  // I-PORT 可移植性（v0.15.0）：钩子命令不得含 POSIX 子命令替换——Windows 下从 cmd/PowerShell
+  // 启动的 agent 会把 $(...) 空展开，node 拿到 /.harness/... → MODULE_NOT_FOUND → 钩子 exit 1（引擎零日志）。
+  spawnAt(root, BIN, ['init', '--agents', 'codex']);
+  const codexConfig = JSON.parse(readFileSync(join(root, '.codex', 'hooks.json'), 'utf8'));
+  const portCommands = [...JSON.stringify(settings).matchAll(/"command":\s*"([^"]+)"/g)].map((m) => m[1])
+    .concat(Object.values(codexConfig.hooks).flatMap((groups) => groups.flatMap((g) => g.hooks.map((h) => h.command))));
+  test('I-PORT', '钩子命令免 shell 特性（无 $( 替换、相对路径，cmd/PowerShell/bash 通吃）',
+    portCommands.length >= 9 && portCommands.every((c) => !c.includes('$(') && /^node \.harness\/engine\//.test(c)),
+    `n=${portCommands.length} 样例=${portCommands[0]}`);
+
   // 基线提交（守卫在位 + 断言真源入库）；随后 staged 删守卫 → pre-commit 钩子拒提交（四层执法 E2E）
   const mod = join(root, '.agentdoc', 'harness', 'modules', 'demo');
   mkdirSync(mod, { recursive: true });

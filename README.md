@@ -187,8 +187,8 @@ reqbank update --git  # 或走 git 远端（HARNESS_KIT_URL 可覆盖）
 ## Windows 说明
 
 - 引擎为纯 Node ESM，Windows 原生可跑（Node ≥ 22.5）。
-- 钩子命令使用 POSIX 子命令替换，需要 bash 环境（Claude Code / Codex 的 Windows 版本本就依赖 Git Bash）；纯 cmd/PowerShell 暂不支持。
-- `install.sh` 需要 Git Bash 或 WSL。
+- v0.15.0 起 claude / codex 适配器的钩子命令为相对路径（`node .harness/engine/<hook>.mjs`，依赖钩子运行时 cwd = 项目根，三家客户端均如此），不含 POSIX 子命令替换——**cmd / PowerShell / Git Bash 任意 shell 启动均可用**，不再强制 Git Bash。ZCode 适配器用客户端展开的 `${ZCODE_PROJECT_DIR}` 模板变量，同样无 shell 依赖。
+- 前提：钩子命令需在项目根执行（客户端约定行为）；若你的 agent 以其他 cwd 调起钩子导致 MODULE_NOT_FOUND，属于客户端配置问题，可用 `--agents` 重渲染或反馈 issue。
 
 ## 各 Agent 的钩子能力矩阵
 

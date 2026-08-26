@@ -207,8 +207,11 @@ const cmdInit = async (options) => {
     console.log(`[reqbank] agents 自动探测：${agents.join(',')}（可用 --agents 覆盖）`);
   }
 
+  // 钩子按「cwd = 项目根」运行（三家客户端均如此）。相对路径不含 POSIX 子命令替换——
+  // v0.15.0 前的 $(git rev-parse ...) 在 Windows 从 cmd/PowerShell 启动的 agent 下空展开，
+  // node 拿到 "/.harness/engine/x.mjs" → MODULE_NOT_FOUND → 钩子 exit 1（引擎零日志可证）。
   const hookCommand = (hookName) =>
-    `node "$(git rev-parse --show-toplevel)/.harness/engine/${hookName}.mjs"`;
+    `node .harness/engine/${hookName}.mjs`;
 
   for (const agent of agents) {
     if (agent === 'codex') {
