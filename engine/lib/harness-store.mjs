@@ -3,7 +3,7 @@
 // this to verify diff coverage of recalled rules.
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { getProjectRoot, repoPath } from './repo-paths.mjs';
 
 // 惰性求根：本模块被 lint.mjs 等库文件 import，非 harness 项目内 import 不得崩溃——
@@ -256,7 +256,7 @@ const listModuleDirs = () => {
   return readdirSync(modulesRoot)
     .map((entry) => join(modulesRoot, entry))
     .filter((path) => statSync(path).isDirectory())
-    .filter((path) => !path.endsWith('/_template'));
+    .filter((path) => basename(path.replace(/\\/g, '/')) !== '_template');
 };
 
 // 解析模块 index.md 命中路径行：

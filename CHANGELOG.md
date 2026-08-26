@@ -2,6 +2,12 @@
 
 格式：版本（日期）+ 变更要点。`reqbank changelog [版本]` 查看指定版本；不接参数显示最新。
 
+## 0.15.2（2026-08-26）
+
+**修复：Windows 下 _template 误报**
+
+- `engine/lib/harness-store.mjs` 的 `_template` 过滤用 `path.endsWith('/_template')`，在 Windows（`\` 分隔）失效，`.agentdoc/harness/modules/_template` 被当成真实模块，触发 `check` 的 `B9` 漂移与 `dead-path` 警告。改为 `basename(path.replace(/\\/g, '/'))` 跨平台判定，`check` 在 Windows 亦静默通过。
+
 ## 0.15.1（2026-08-26）
 
 **修复：Windows 下 check/version 的 ESM 盘符路径错误（Received protocol 'd:'）**
