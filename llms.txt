@@ -15,8 +15,10 @@
 ```bash
 npx @cirscn/reqbank init
 # 成功标识：退出码 0，输出末尾出现 "✓ check passed —— 安装完成"
-# agent 自动探测：CLAUDECODE 环境线索 + .claude/ .codex/ 目录；探测不到会 exit 2
+# agent 自动探测：CLAUDECODE/ZCODE_APP_VERSION 环境线索 + .claude/ .codex/ .zcode/ 目录；探测不到会 exit 2
 #   并提示 --agents——此时询问用户，不要自行猜测
+# zcode 适配器：.zcode/config.json（hooks.events + enabled:true，命令用 ${ZCODE_PROJECT_DIR}）；
+#   首次使用客户端弹钩子审核，全选信任一次即持续生效；勿与用户级 ~/.zcode/cli/config.json 双注册（事件双跑）
 # 已有 .claude/settings.json：自动合并钩子（原条目保留，写前留 .bak）；仅当文件无法
 #   解析才落 harness-hooks-snippet.json 待手动合并（唯一需要人工的路径）
 
@@ -56,7 +58,7 @@ tail -1 .agentdoc/harness/learning-log.jsonl   # 有新事件行 = 钩子已在�
 
 | 命令 | 参数 | 行为与退出码 |
 |---|---|---|
-| `init` | `--agents codex,claude`（可省略，自动探测）；`--gate` 追加装配 pre-commit + CI workflow | 见副作用清单；末尾自动 check；探测不到 agent 或无法定位仓库 exit 2 |
+| `init` | `--agents codex,claude,zcode`（可省略，自动探测）；`--gate` 追加装配 pre-commit + CI workflow | 见副作用清单；末尾自动 check；探测不到 agent 或无法定位仓库 exit 2 |
 | `scope <任务>` | — | 任务 → REQ/TC 证据链，stdout JSONL |
 | `check` / `doctor` | `--strict` | 结构 + 全部 lint（标签/矛盾/追溯完整性/生命周期/漂移/断言覆盖率）；有问题 exit 1；`--strict` 把警告升级为失败 |
 | `verify` | `--turn <id>` / `--tc <scope:TC-001>`（可多个）/ `--all`（全库枚举，CI 用） | 默认取 learning-log 最近有召回的回合，执行命中 TC 的 V 命令；任一失败 exit 1；逐条写 learning-log |

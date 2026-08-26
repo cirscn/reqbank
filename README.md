@@ -30,10 +30,12 @@
 
 ```bash
 cd your-repo
-npx @cirscn/reqbank init    # --agents 可省略：自动探测（CLAUDECODE 环境线索、.claude/、.codex/ 目录）
+npx @cirscn/reqbank init    # --agents 可省略：自动探测（CLAUDECODE/ZCODE_APP_VERSION 环境线索、.claude/、.codex/、.zcode/ 目录）
 ```
 
 仓库已有 `.claude/settings.json` 时自动合并钩子条目（原内容原样保留，写前留 `.bak` 备份），仅当该文件无法解析才回退为片段文件待手动合并。init 末尾自动运行 `check`，输出 `✓ check passed` 即安装成功；钩子自新会话起生效。
+
+**ZCode 用户**：适配器写入 `.zcode/config.json`（`hooks.events` 结构 + `enabled:true`，命令用 `${ZCODE_PROJECT_DIR}` 模板变量）。首次使用时客户端会弹出钩子审核——**全选后信任一次**即持续生效（逐条信任会反复弹出）。两个注意：① 仓库若已忽略 `.zcode/` 整目录，想随仓库分发需改为 `.zcode/*` + `!.zcode/config.json` 两行（git 无法重新包含被排除目录内的文件）；② 不要再在用户级 `~/.zcode/cli/config.json` 注册同一引擎——双注册会导致每个事件双跑。ZCode 的 payload 与 Claude Code 契约兼容（snake_case 双发），唯 `turn_id` 只有 camelCase `turnId`，引擎已在 payload 归一层做 fallback。
 
 安装产物：
 
@@ -195,6 +197,7 @@ reqbank update --git  # 或走 git 远端（HARNESS_KIT_URL 可覆盖）
 | Agent | 注册位置 | 回合召回注入 | 写前拦截 | 编辑后 critic | Stop 硬拦截 | 已知边界 |
 |---|---|---|---|---|---|---|
 | Claude Code | `.claude/settings.json` | ✅ additionalContext 强制推送 | ✅ PreToolUse deny（断言层，Edit/Write/MultiEdit） | ✅ 分类+注入+审计 | ✅ `decision:block` | Windows 需 Git Bash |
+| ZCode | `.zcode/config.json` | ✅ 同上 | ✅ 同上（含 matcher） | ✅ 同上 | ✅ | 首次需客户端审核全选信任一次；payload 兼容 CC（turnId 引擎归一）；勿与用户级 hooks 双注册 |
 | Codex CLI | `.codex/hooks.json` | ✅ 同上 | ❌ 协议无 PreToolUse 事件 | ✅ 同上 | ✅ 兼容两种 block 形状 | 多层配置全部加载：包内会话由包内 hooks 独占，根桥自动 fail-open 让位 |
 | Grok | `.grok/hooks` + rules 文件中继 | ⚠️ 写入 rules 文件，agent 同回合手读 | ⚠️ 仅审计日志 | ❌ 协议不允许 | 被动钩子 stdout 被忽略；多会话 rules 文件 last-writer-wins |
 | 无钩子工具（Cursor 等） | 仅 AGENTS.md 指令 | ❌ 手动 `reqbank scope` | ❌ | ❌ | 建议配合 CI 门禁补偿 |

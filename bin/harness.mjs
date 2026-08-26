@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // harness — 需求记忆脚手架 CLI
 // 用法：
-//   harness init [--agents codex,claude,grok]   初始化 .agentdoc/harness 脚手架并渲染 agent 适配器
-//                                               --agents 省略时自动探测（CLAUDECODE 环境线索 / .claude .codex 目录）
+//   harness init [--agents codex,claude,zcode,grok]   初始化 .agentdoc/harness 脚手架并渲染 agent 适配器
+//                                               --agents 省略时自动探测（CLAUDECODE/ZCODE 环境线索 / .claude .codex .zcode 目录）
 //   reqbank scope <task...>                     任务 → REQ/TC 证据链（JSONL）
 //   harness check                               脚手架健康检查（结构完整性 / 占位符残留）
 //   harness doctor                              同 check（别名）
@@ -187,14 +187,20 @@ const cmdInit = async (options) => {
     if (process.env.CLAUDECODE === '1') {
       detected.add('claude');
     }
+    if (process.env.ZCODE_APP_VERSION) {
+      detected.add('zcode');
+    }
     if (existsSync(join(root, '.claude'))) {
       detected.add('claude');
     }
     if (existsSync(join(root, '.codex'))) {
       detected.add('codex');
     }
+    if (existsSync(join(root, '.zcode'))) {
+      detected.add('zcode');
+    }
     if (!detected.size) {
-      console.error('[reqbank] 未检测到已配置的 agent（无 CLAUDECODE 环境线索、无 .claude/.codex 目录）。请用 --agents codex,claude 指定，或询问用户当前使用什么工具。');
+      console.error('[reqbank] 未检测到已配置的 agent（无 CLAUDECODE/ZCODE 环境线索、无 .claude/.codex/.zcode 目录）。请用 --agents codex,claude,zcode 指定，或询问用户当前使用什么工具。');
       process.exit(2);
     }
     agents = [...detected];
@@ -271,6 +277,38 @@ const cmdInit = async (options) => {
           console.warn(`[reqbank] 片段写入 ${snippetPath}——需手动合并进 settings.json 的 hooks 字段，合并前钩子不生效`);
         }
       }
+    } else if (agent === 'zcode') {
+      // ZCode 项目级钩子：hooks.events 包一层 + 必须 enabled:true；命令用 ZCode 文档化的
+      // ${ZCODE_PROJECT_DIR} 模板变量（渲染时展开）。首次使用客户端会弹钩子审核——全选信任一次即持续生效。
+      // 不得与用户级 ~/.zcode/cli/config.json 同时注册同一引擎：实测会导致每个事件双跑。
+      const zcodeDir = join(root, '.zcode');
+      mkdirSync(zcodeDir, { recursive: true });
+      const zcodeHookCommand = (hookName) =>
+        `node "\${ZCODE_PROJECT_DIR}/.harness/engine/${hookName}.mjs"`;
+      const config = {
+        hooks: {
+          enabled: true,
+          events: {
+            SessionStart: [{ hooks: [{ type: 'command', command: zcodeHookCommand('session-init'), timeout: 15 }] }],
+            UserPromptSubmit: [{ hooks: [{ type: 'command', command: zcodeHookCommand('recall'), timeout: 30 }] }],
+            PreToolUse: [{
+              matcher: 'Edit|Write|MultiEdit',
+              hooks: [{ type: 'command', command: zcodeHookCommand('pre-critic'), timeout: 30 }]
+            }],
+            PostToolUse: [{
+              matcher: 'Edit|Write|MultiEdit',
+              hooks: [{ type: 'command', command: zcodeHookCommand('critic'), timeout: 60 }]
+            }],
+            Stop: [{ hooks: [{ type: 'command', command: zcodeHookCommand('finalize'), timeout: 60 }] }]
+          }
+        }
+      };
+      const configPath = join(zcodeDir, 'config.json');
+      if (existsSync(configPath)) {
+        copyFileSync(configPath, `${configPath}.bak`);
+      }
+      writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+      console.log('[reqbank] zcode adapter → .zcode/config.json（首次使用需在客户端对钩子审核全选信任一次）');
     } else if (agent === 'grok') {
       console.log('[reqbank] grok 适配器为实验特性：请参考 README「多包仓库 / Grok 桥接」一节手动配置');
     } else {

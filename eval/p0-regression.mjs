@@ -155,6 +155,19 @@ test('B3', 'verify 逐条写 learning-log（event: verify）',
   && verifyEvents.every((e) => e.tc && typeof e.exit === 'number' && e.ok === true && typeof e.duration_ms === 'number'),
   `exit=${verifyRun.status}，verify 事件 ${verifyEvents.length} 条：${verifyEvents.map((e) => `${e.tc}(${e.command})`).join('、')}`);
 
+// ── Z1：ZCode 真实 payload（camelCase turnId）→ turn_id 归一落日志 ──────
+// 夹具为 2026-08-26 ZCode 客户端实测捕获：snake_case 全兼容，唯 turn_id 只有 camelCase turnId。
+const zcodePayload = readFileSync(join(KIT_ROOT, 'eval', 'fixtures', 'zcode-userprompt-payload.json'), 'utf8');
+const zcodeRecall = spawnAt(join(ENGINE, 'recall.mjs'), [], { input: zcodePayload });
+const zcodeEvents = existsSync(logPath)
+  ? readFileSync(logPath, 'utf8').split('\n').filter(Boolean).map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean)
+      .filter((e) => e.event === 'UserPromptSubmit' && e.session_id === 'sess_bbe20beb-fa87-4594-b812-a114345b7e26')
+  : [];
+test('Z1', 'ZCode payload 归一：camelCase turnId → turn_id（learning-log 可按回合归组）',
+  zcodeRecall.status === 0 && zcodeEvents.length >= 1
+  && zcodeEvents.every((e) => e.turn_id === 'turn_83b7ccf7-b5a6-48c6-aabd-d300466b1010'),
+  `exit=${zcodeRecall.status}，turn_id=${zcodeEvents.at(-1)?.turn_id ?? '无'}`);
+
 // ── 汇总 ───────────────────────────────────────────────────
 const failed = results.filter((r) => !r.pass);
 console.log(`\n═══ P0 回归：${results.length - failed.length}/${results.length} 通过 ═══`);

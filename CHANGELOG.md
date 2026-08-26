@@ -2,6 +2,15 @@
 
 格式：版本（日期）+ 变更要点。`reqbank changelog [版本]` 查看指定版本；不接参数显示最新。
 
+## 0.14.0（2026-08-26）
+
+**ZCode 适配器：官方支持第三家 agent 客户端**
+
+- `init --agents zcode`（自动探测：`ZCODE_APP_VERSION` 环境线索 / `.zcode/` 目录）渲染 `.zcode/config.json`：`hooks.events` 结构 + `enabled:true`，命令用 `${ZCODE_PROJECT_DIR}` 模板变量，写前留 `.bak`。
+- payload 归一层新增 ZCode `turnId` fallback：ZCode 实测 payload 与 Claude Code 契约兼容（snake_case 双发），唯 `turn_id` 只有 camelCase `turnId`——归一后 learning-log 可按回合归组。真实采集的 payload 已固化为回归夹具（p0-Z1）。
+- 实测行为写进文档（README 能力矩阵 + llms.txt）：首次使用客户端弹钩子审核，**全选信任一次**即持续生效且即时生效无需重启；勿与用户级 `~/.zcode/cli/config.json` 双注册（实测事件双跑）；仓库若忽略 `.zcode/` 整目录，需 `.zcode/*` + `!.zcode/config.json` 两行才能随仓库分发。
+- coverage-100 新增 A07（zcode 适配器形状断言）。
+
 ## 0.13.1（2026-08-26）
 
 **修复 CLI 派发：mine/reflect 自 v0.9.0 起静默降级为 status 报表**

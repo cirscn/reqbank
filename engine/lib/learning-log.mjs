@@ -67,10 +67,13 @@ export const parseHookPayload = (raw) => {
   }
   try {
     const input = JSON.parse(raw);
-    // 回合标识归一：Codex 发 turn_id，Claude Code 发 prompt_id——统一挂到 turn_id，
-    // findEventsByTurn / critic 同回合去重 / Stop 聚合在两个 agent 上行为一致。
+    // 回合标识归一：Codex 发 turn_id，Claude Code 发 prompt_id，ZCode 只发 camelCase turnId——
+    // 统一挂到 turn_id，findEventsByTurn / critic 同回合去重 / Stop 聚合在三个 agent 上行为一致。
     if (!input.turn_id && input.prompt_id) {
       input.turn_id = input.prompt_id;
+    }
+    if (!input.turn_id && input.turnId) {
+      input.turn_id = input.turnId;
     }
     return { input, parseError: null };
   } catch (err) {

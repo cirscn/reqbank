@@ -119,6 +119,13 @@ t('A04', 'A-安装', 'claude 适配器：settings.json 四事件且不覆盖既�
   const local = JSON.parse(readFileSync(join(REPO, '.claude', 'settings.local.json'), 'utf8'));
   ok(!local.hooks, 'settings.local.json should stay untouched');
 });
+t('A07', 'A-安装', 'zcode 适配器：config.json 五事件 + enabled + ZCODE_PROJECT_DIR 模板变量', () => {
+  const config = JSON.parse(readFileSync(join(REPO, '.zcode', 'config.json'), 'utf8'));
+  ok(config.hooks.enabled === true, 'hooks.enabled must be true（配置钩子默认禁用）');
+  ok(['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop'].every((event) => config.hooks.events[event]), 'missing zcode hook event');
+  ok(String(config.hooks.events.PreToolUse[0].matcher) === 'Edit|Write|MultiEdit', 'PreToolUse matcher wrong');
+  ok(JSON.stringify(config).includes('${ZCODE_PROJECT_DIR}'), 'should use ZCODE_PROJECT_DIR template var');
+});
 t('A05', 'A-安装', 'version 输出与 kit 一致', () => {
   const result = runBin(['version']);
   const printed = (result.stdout.trim().split(/[（(\s]/)[0] ?? '').trim();
