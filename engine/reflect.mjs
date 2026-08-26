@@ -30,7 +30,7 @@ const parseArgs = (argv) => {
   return options;
 };
 
-const main = () => {
+const main = async () => {
   const options = parseArgs(process.argv.slice(2));
   const events = readLogLines();
 

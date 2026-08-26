@@ -2,6 +2,14 @@
 
 格式：版本（日期）+ 变更要点。`reqbank changelog [版本]` 查看指定版本；不接参数显示最新。
 
+## 0.13.1（2026-08-26）
+
+**修复 CLI 派发：mine/reflect 自 v0.9.0 起静默降级为 status 报表**
+
+- `reqbank mine` / `reqbank reflect` 的 dispatch 误将两个命令连同 `status` 一并派发到 `engine/status.mjs`——CLI 层从未到达考古/回流引擎（既有测试直接调 engine 入口，未覆盖 CLI 层）。现按命令映射派发到 `mine.mjs` / `reflect.mjs`，usage 串同步补全。
+- `engine/reflect.mjs` 的 `main` 非 async：成功路径也以退出码 1 崩溃（`main().catch` 对 undefined 取 catch 抛 TypeError），fail-open 形同虚设。对齐 mine.mjs 改为 async。
+- 对抗评测新增 ② 段 DISPATCH-MINE / DISPATCH-REFLECT：受控仓库走 CLI 入口，断言 stderr 引擎标记 + stdout 无 status 报表，封住「只测 engine 不测 CLI」盲区。
+
 ## 0.13.0（2026-08-25）
 
 **执法闭合（硬拦只认断言，补四条引擎洞）**

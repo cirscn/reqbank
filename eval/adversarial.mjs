@@ -207,6 +207,23 @@ const lastLogOf = (root, event, turn) => readFileSync(join(root, '.agentdoc', 'h
   rmSync(root, { recursive: true, force: true });
 }
 
+// ══ ② CLI 派发回归 ══════════════════════════════════════
+// v0.13.0 洞：bin dispatch 把 mine/reflect 误派到 status.mjs，静默降级为状态报表。
+// 回归锚点：CLI 入口必须到达各自引擎（stderr 标记），且 stdout 不出现 status 报表。
+{
+  const root = join(tmpdir(), `reqbank-dispatch-${Date.now().toString(36)}`);
+  buildAtkRoot(root);
+  const mineCli = spawnAt(root, BIN, ['mine', '--limit', '5']);
+  test('DISPATCH-MINE', 'CLI reqbank mine 派发到 mine.mjs，不降级为 status 报表',
+    mineCli.status === 0 && /\[reqbank mine\]/.test(mineCli.stderr) && !mineCli.stdout.includes('[reqbank status]'),
+    `exit=${mineCli.status} ${(mineCli.stderr.match(/\[reqbank mine\][^\n]*/) ?? ['无'])[0].slice(0, 70)}`);
+  const reflCli = spawnAt(root, BIN, ['reflect']);
+  test('DISPATCH-REFLECT', 'CLI reqbank reflect 派发到 reflect.mjs，不降级为 status 报表',
+    reflCli.status === 0 && /\[reqbank reflect\]/.test(reflCli.stderr) && !reflCli.stdout.includes('[reqbank status]'),
+    `exit=${reflCli.status} ${(reflCli.stderr.match(/\[reqbank reflect\][^\n]*/) ?? ['无'])[0].slice(0, 70)}`);
+  rmSync(root, { recursive: true, force: true });
+}
+
 const bpmsAvailable = existsSync(join(BPMS, 'src'))
   && existsSync(join(BPMS, '.agentdoc', 'harness', 'modules', 'request', 'requirements.md'));
 if (!bpmsAvailable) {

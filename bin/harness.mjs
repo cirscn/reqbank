@@ -837,7 +837,8 @@ const main = async () => {
     case 'mine':
     case 'reflect':
     case 'status': {
-      const result = spawnSync(process.execPath, [join(ENGINE_DIR, 'status.mjs'), ...rest], {
+      const entry = { mine: 'mine.mjs', reflect: 'reflect.mjs' }[command] ?? 'status.mjs';
+      const result = spawnSync(process.execPath, [join(ENGINE_DIR, entry), ...rest], {
         stdio: 'inherit',
         env: { ...process.env, HARNESS_PROJECT_ROOT: process.env.HARNESS_PROJECT_ROOT }
       });
@@ -916,7 +917,7 @@ const main = async () => {
       return;
     }
     default:
-      console.error('usage: reqbank <init|scope|check|doctor|verify|gate|status|confirm|report|impact|smoke|update|lang|changelog|version|session-init|recall|pre-critic|critic|finalize> [args]');
+      console.error('usage: reqbank <init|scope|check|doctor|verify|gate|status|confirm|mine|reflect|report|impact|smoke|update|lang|changelog|version|session-init|recall|pre-critic|critic|finalize> [args]');
       process.exit(command ? 2 : 0);
   }
 };
