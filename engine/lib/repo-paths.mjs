@@ -1,7 +1,12 @@
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const MARKER = join('.agentdoc', 'harness');
+
+// Windows ESM：动态 import 的 specifier 按 URL 解析，绝对路径必须先转 file://——
+// 盘符裸路径（D:\x.mjs）会被解析成协议，抛 ERR_INVALID_URL_SCHEME（Received protocol 'd:'）。
+export const dynamicImport = (path) => import(pathToFileURL(path).href);
 
 /**
  * 项目根解析（按优先级）：

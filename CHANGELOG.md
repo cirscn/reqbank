@@ -2,6 +2,14 @@
 
 格式：版本（日期）+ 变更要点。`reqbank changelog [版本]` 查看指定版本；不接参数显示最新。
 
+## 0.15.1（2026-08-26）
+
+**修复：Windows 下 check/version 的 ESM 盘符路径错误（Received protocol 'd:'）**
+
+- CLI（bin/harness.mjs）六处动态 `import(绝对路径)` 在 Windows 抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`——ESM specifier 按 URL 解析，盘符 `D:\…` 被当成协议。新增 `dynamicImport()`（`pathToFileURL` 转换，落在 engine/lib/repo-paths.mjs）统一替换。
+- 0.15.0 修复后的钩子链路（相对路径命令）在 Windows 已实测 exit 0；本版补齐维护命令（check / version / confirm / --vendor / lang）。
+- p2 新增 I-URL 回归：盘符路径经修复后报 `ERR_MODULE_NOT_FOUND`（正常缺失）而非 URL 协议错误——跨平台可测（URL 解析与平台无关）。
+
 ## 0.15.0（2026-08-26）
 
 **钩子命令免 shell 特性：Windows 任意 shell 可用**

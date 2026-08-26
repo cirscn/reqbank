@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const KIT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ENGINE = join(KIT_ROOT, 'engine');
@@ -282,6 +282,18 @@ const lastLogOf = (root, event, turnId) => readFileSync(join(root, '.agentdoc', 
   test('I-PORT', '钩子命令免 shell 特性（无 $( 替换、相对路径，cmd/PowerShell/bash 通吃）',
     portCommands.length >= 9 && portCommands.every((c) => !c.includes('$(') && /^node \.harness\/engine\//.test(c)),
     `n=${portCommands.length} 样例=${portCommands[0]}`);
+
+  // I-URL Windows ESM 路径（v0.15.1）：CLI 动态 import 必须走 pathToFileURL——盘符裸路径
+  // 在任何平台都会被 URL 解析成协议（Received protocol 'd:'，Windows check/version 复现）。
+  const { dynamicImport } = await import(pathToFileURL(join(ENGINE, 'lib', 'repo-paths.mjs')).href);
+  let fixedErr = null;
+  try { await dynamicImport('D:/definitely/missing.mjs'); } catch (err) { fixedErr = err; }
+  let rawErr = null;
+  try { await import('D:/definitely/missing.mjs'); } catch (err) { rawErr = err; }
+  test('I-URL', 'dynamicImport 经 pathToFileURL：盘符路径报 MODULE_NOT_FOUND 而非 URL 协议错误',
+    typeof dynamicImport === 'function' && rawErr?.code === 'ERR_UNSUPPORTED_ESM_URL_SCHEME'
+    && fixedErr?.code === 'ERR_MODULE_NOT_FOUND',
+    `raw=${rawErr?.code} fixed=${fixedErr?.code}`);
 
   // 基线提交（守卫在位 + 断言真源入库）；随后 staged 删守卫 → pre-commit 钩子拒提交（四层执法 E2E）
   const mod = join(root, '.agentdoc', 'harness', 'modules', 'demo');

@@ -20,6 +20,7 @@ import { chmodSync, copyFileSync, cpSync, existsSync, mkdtempSync, mkdirSync, re
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { dynamicImport } from '../engine/lib/repo-paths.mjs';
 
 const BIN_DIR = dirname(fileURLToPath(import.meta.url));
 const KIT_ROOT = resolve(BIN_DIR, '..');
@@ -450,8 +451,8 @@ const cmdCheck = async (rest = []) => {
           problems.push(`gate-baseline.json 无法解析（fail-closed）: ${error.message}`);
         }
       }
-      const store = await import(join(ENGINE_DIR, 'lib', 'harness-store.mjs'));
-      const lint = await import(join(ENGINE_DIR, 'lib', 'lint.mjs'));
+      const store = await dynamicImport(join(ENGINE_DIR, 'lib', 'harness-store.mjs'));
+      const lint = await dynamicImport(join(ENGINE_DIR, 'lib', 'lint.mjs'));
       const requirements = store.loadAllRequirements({ includeInactive: true });
       const allTests = store.loadAllTests({ includeInactive: true });
       const modulesWithMeta = store.listModulesWithMeta();
@@ -535,7 +536,7 @@ const cmdCheck = async (rest = []) => {
   }
   // --vendor：P5 vendor 资产完整性（sha256 对照 VENDOR.json），不符 exit 1
   if (rest.includes('--vendor')) {
-    const { verifyVendorAssets } = await import(join(ENGINE_DIR, 'lib', 'ast.mjs'));
+      const { verifyVendorAssets } = await dynamicImport(join(ENGINE_DIR, 'lib', 'ast.mjs'));
     const vendorProblems = verifyVendorAssets();
     if (vendorProblems.length) {
       console.error(`[reqbank] vendor check failed (${vendorProblems.length}):`);
@@ -621,7 +622,7 @@ const cmdLang = async (rest = []) => {
       return {};
     }
   };
-  const { builtinAstLanguages } = await import(join(ENGINE_DIR, 'lib', 'ast.mjs'));
+  const { builtinAstLanguages } = await dynamicImport(join(ENGINE_DIR, 'lib', 'ast.mjs'));
 
   if (action === 'list') {
     const map = readMap();
@@ -855,7 +856,7 @@ const main = async () => {
         return;
       }
       // P6：缓存优先显示 latest；网络失败静默回退只显示已装版本
-      const { checkForUpdate } = await import(join(ENGINE_DIR, 'lib', 'update-check.mjs'));
+      const { checkForUpdate } = await dynamicImport(join(ENGINE_DIR, 'lib', 'update-check.mjs'));
       const check = await checkForUpdate({
         currentVersion: installed,
         cachePath: join(root, '.agentdoc', 'harness', 'update-check.json')
@@ -899,7 +900,7 @@ const main = async () => {
         console.error('[reqbank] usage: reqbank confirm <scope:REQ-id>');
         process.exit(2);
       }
-      const store = await import(join(ENGINE_DIR, 'lib', 'harness-store.mjs'));
+      const store = await dynamicImport(join(ENGINE_DIR, 'lib', 'harness-store.mjs'));
       const file = matchId[1] === 'global'
         ? join(root, '.agentdoc', 'harness', 'global', 'requirements.md')
         : join(root, '.agentdoc', 'harness', 'modules', matchId[1], 'requirements.md');
