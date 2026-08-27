@@ -13,7 +13,7 @@
 // 全程 fail-open：任何异常静默 exit 0，绝不影响主流程。
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { repoPath } from './lib/repo-paths.mjs';
@@ -87,6 +87,7 @@ const drainNudges = () => {
   try {
     renameSync(target, staging); // 先挪走再读，期间新写入不落丢
     const content = readFileSync(staging, 'utf8').trim();
+    rmSync(staging, { force: true }); // 读完即清，避免 .draining 残留进 git status
     return content ? `\n[reqbank 暂存提醒——来自此前编辑后的 critic，请收尾前处理]\n${content}\n` : '';
   } catch {
     return '';

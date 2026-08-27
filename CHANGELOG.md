@@ -2,6 +2,12 @@
 
 格式：版本（日期）+ 变更要点。`reqbank changelog [版本]` 查看指定版本；不接参数显示最新。
 
+## 0.19.1（2026-08-28）
+
+**修复：Kimi 适配器 drain 后清理 `.draining` 暂存文件**
+
+- 0.19.0 的 drain 流程把 pending 文件 rename 成 `.draining` 后未删除，每次提醒注入都在 `.agentdoc/harness/` 留一个残留文件污染 git status。改为读完即 `rmSync`；KIMI-ADP-RECALL 回归补残留断言。
+
 ## 0.19.0（2026-08-27）
 
 **新增 Kimi Code 适配器 + payload 归一兼容 `tool_input.path`**

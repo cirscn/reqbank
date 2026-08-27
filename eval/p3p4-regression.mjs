@@ -457,9 +457,10 @@ const lastLogOf = (root, event, turnId) => readFileSync(join(root, '.agentdoc', 
     && readFileSync(PENDING, 'utf8').includes('[reqbank 自动沉淀]'));
 
   const up = kimiRun('UserPromptSubmit', { turn_id: 'k-t2', prompt: '修改 src/demo/agent.ts 的错误处理' });
-  test('KIMI-ADP-RECALL', 'UserPromptSubmit：召回正文注入 + 暂存提醒随附并清空',
+  test('KIMI-ADP-RECALL', 'UserPromptSubmit：召回正文注入 + 暂存提醒随附并清空（无 .draining 残留）',
     up.status === 0 && up.stdout.includes('REQ-001')
-    && up.stdout.includes('reqbank 暂存提醒') && !existsSync(PENDING));
+    && up.stdout.includes('reqbank 暂存提醒') && !existsSync(PENDING)
+    && !existsSync(`${PENDING}.draining`));
 
   const pre = kimiRun('PreToolUse', {
     turn_id: 'k-t3', tool_name: 'Edit',
