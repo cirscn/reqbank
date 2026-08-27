@@ -2,6 +2,14 @@
 
 格式：版本（日期）+ 变更要点。`reqbank changelog [版本]` 查看指定版本；不接参数显示最新。
 
+## 0.17.0（2026-08-27）
+
+**新增：零覆盖编辑的沉淀提醒——由当次会话 agent 自起草契约候选**
+
+- 流程纠偏：需求提取不该卡外部 LLM key——正在改代码的会话本身有完整上下文。critic 在「零召回且无断言命中」编辑后（原静默 skip 分支）注入一次性 PostToolUse additionalContext，提示当前 agent 收尾前按 agent-guide 五步协议向 `inbox/stop-<日期>.md` 追加 `[ai-draft]` 人审草稿卡；同回合只提醒一次。
+- 元路径（`.harness/`、`.agentdoc/`、AGENTS.md 等）不算沉淀素材，isBusinessFile 过滤。
+- 行为兼容：`skip_reason` 保持 `no_strong_recall`，除一次上下文注入外默认行为不变。eval/p3p4 新增 DNUDGE / DNUDGE-ONCE 回归。
+
 ## 0.16.0（2026-08-27）
 
 **新增：Stop 自动沉淀（P5）——补上「运行中入金」通道**

@@ -401,6 +401,22 @@ const lastLogOf = (root, event, turnId) => readFileSync(join(root, '.agentdoc', 
     && p5cfg.defaultOff === true && p5cfg.gateWithoutKey === true,
     probe.stdout.trim());
 
+  // 沉淀提醒：零覆盖编辑当回合向当前 agent 注入一次自起草上下文（不依赖外部 LLM key）
+  const dn1 = criticRun(root, 'p34-dn1', patchOf('src/orphan/util.ts', [], ['export const extra = () => 3;\n']));
+  const dn1Out = JSON.parse(dn1.stdout || '{}');
+  test('DNUDGE', '沉淀提醒：零覆盖编辑注入一次自起草 additionalContext',
+    dn1Out.hookSpecificOutput?.hookEventName === 'PostToolUse'
+    && String(dn1Out.hookSpecificOutput?.additionalContext ?? '').includes('[ai-draft]')
+    && String(dn1Out.hookSpecificOutput?.additionalContext ?? '').includes('.agentdoc/harness/inbox/')
+    && lastLogOf(root, 'PostToolUse', 'p34-dn1')?.distill_nudge_emitted === true,
+    `ctx=${String(dn1Out.hookSpecificOutput?.additionalContext ?? '').slice(0, 40)}…`);
+
+  const dn2 = criticRun(root, 'p34-dn1', patchOf('src/orphan/util.ts', [], ['export const more = () => 4;\n']));
+  const dn2Out = JSON.parse(dn2.stdout || '{}');
+  test('DNUDGE-ONCE', '沉淀提醒同回合去重：第二次零覆盖编辑不再注入',
+    dn2Out.hookSpecificOutput === undefined
+    && lastLogOf(root, 'PostToolUse', 'p34-dn1')?.distill_nudge_emitted !== true);
+
   rmSync(root, { recursive: true, force: true });
 }
 

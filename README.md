@@ -162,7 +162,7 @@ export ANTHROPIC_API_KEY=sk-...     # 或 OPENAI_API_KEY（兼容自定义 OPENA
 
 ### Stop 自动沉淀（运行中入金）
 
-每个回合结束时，Stop 钩子把「改动但零召回、无断言命中」的业务文件自动落成 `inbox/stop-<日期>.md` 草稿卡（始终启用、同日去重），与手动 `mine` / `reflect` 构成完整入金通道：
+每个回合结束时，Stop 钩子把「改动但零召回、无断言命中」的业务文件自动落成 `inbox/stop-<日期>.md` 草稿卡（始终启用、同日去重），与手动 `mine` / `reflect` 构成完整入金通道。当回合首次编辑未注册业务文件时，critic 还会向**当次会话的 agent 注入一次性提醒**，由它自己把契约候选以 `[ai-draft]` 卡片写进 inbox——需求提取靠有完整上下文的当前 AI 完成，不依赖外部 LLM key：
 
 ```bash
 export HARNESS_STOP_DISTILL=1       # 可选：LLM 把 diff 起草为「不得」句式 REQ 候选

@@ -355,7 +355,7 @@ const cmdInit = async (options) => {
   console.log(`  2. 用 reqbank scope "任务描述" 验证召回（当前 ${fresh ? '空脚手架，先沉淀第一条 REQ' : '已有记忆'}）`);
   console.log('  3. 提交前保持钩子静默通过；确定性冲突会被 Stop 拦截');
   console.log('  4. 冷启动沉淀：`reqbank mine` 考古候选 → inbox/ 人审入库；起草协议见 .agentdoc/harness/agent-guide.md');
-  console.log('  5. 持续回流：`reqbank reflect` 把重复违规聚合成条款建议（可配 --transcript 消费会话纠错）；Stop 钩子每回合自动沉淀零覆盖卡片到 inbox/stop-<日期>.md，LLM 起草可选 HARNESS_STOP_DISTILL=1');
+  console.log('  5. 持续回流：`reqbank reflect` 把重复违规聚合成条款建议（可配 --transcript 消费会话纠错）；Stop 钩子每回合自动沉淀零覆盖卡片到 inbox/stop-<日期>.md，编辑零覆盖文件时同步提醒当次 agent 起草 [ai-draft] 候选');
 
   // P2 init --gate：把 gate 装配到提交/CI 时点（one engine, one verdict 的第二入口）
   if (options.gate) {
