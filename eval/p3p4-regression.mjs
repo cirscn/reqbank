@@ -3,6 +3,7 @@
 // P3：5 列生命周期/置信度、active 过滤、lifecycle lint、confirm、status 三态、漂移+** glob、
 //     warn 降级、内联抑制、gate freeze、report 2.0 + 快照棘轮。
 // P4：mtime 缓存正确性、日志轮转+增量读、Stop 自动 TC（HARNESS_STOP_VERIFY）、mine、reflect（含 transcript）、agent-guide。
+// P5：Stop 自动沉淀（distill）：零覆盖卡片落 inbox、同日去重、环境门控（HARNESS_STOP_DISTILL）。
 // 用法：node eval/p3p4-regression.mjs
 
 import { spawnSync } from 'node:child_process';
@@ -344,6 +345,62 @@ const lastLogOf = (root, event, turnId) => readFileSync(join(root, '.agentdoc', 
     `suggestions=${reflectJson.suggestions} kinds=${[...reflectDoc.matchAll(/\[(\w[\w-]*)\]/g)].map((m) => m[1]).slice(0, 6).join(',')}`);
 
   test('GUIDE', 'agent-guide 向导随模板分发', existsSync(join(KIT_ROOT, 'templates', 'harness', 'agent-guide.md')));
+  rmSync(root, { recursive: true, force: true });
+}
+
+// ══ P5：Stop 自动沉淀 / distill ══════════════════════════
+{
+  const root = join(tmpdir(), `reqbank-p5-dl-${Date.now().toString(36)}`);
+  buildRoot(root);
+  gitAt(root, ['init', '-q']); gitAt(root, ['config', 'user.email', 'e@e']); gitAt(root, ['config', 'user.name', 'e']);
+  gitAt(root, ['add', '.']); gitAt(root, ['commit', '-qm', 'base']);
+
+  // 零覆盖业务文件改动：src/orphan/ 不在任何模块命中路径内（untracked 新文件走合成 diff）
+  recallRun(root, 'p34-da', '实现 src/orphan/util.ts 的工具函数并补测试');
+  mkdirSync(join(root, 'src', 'orphan'), { recursive: true });
+  writeFileSync(join(root, 'src/orphan/util.ts'), 'export const util = () => 2;\n');
+  const daRun = finalizeRun(root, 'p34-da');
+  const stopCardPath = join(root, '.agentdoc', 'harness', 'inbox', `stop-${new Date().toISOString().slice(0, 10)}.md`);
+  const daLog = lastLogOf(root, 'Stop', 'p34-da');
+  test('DISTILL', 'Stop 自动沉淀：零覆盖改动落 inbox 卡片 + distill 审计字段 + 放行语义不变',
+    existsSync(stopCardPath)
+    && (readFileSync(stopCardPath, 'utf8').match(/\[stop-uncovered\]/g) ?? []).length === 1
+    && (daLog.distill_deterministic_cards ?? []).some((t) => t.includes('src/orphan/util.ts'))
+    && daLog.decision === 'allow'
+    && JSON.parse(daRun.stdout || '{}').decision === undefined,
+    `cards=${JSON.stringify(daLog.distill_deterministic_cards)}`);
+
+  // 同日去重：第二个回合再次改动同一文件，卡片不重复追加
+  recallRun(root, 'p34-db', '再补充 src/orphan/util.ts 的边界用例');
+  const dbRun = finalizeRun(root, 'p34-db');
+  const dbLog = lastLogOf(root, 'Stop', 'p34-db');
+  void dbRun;
+  test('DISTILL-DUP', 'Stop 自动沉淀同日同名卡片去重',
+    (dbLog.distill_deterministic_cards ?? []).length === 0
+    && (readFileSync(stopCardPath, 'utf8').match(/\[stop-uncovered\]/g) ?? []).length === 1,
+    `cards=${JSON.stringify(dbLog.distill_deterministic_cards)}`);
+
+  // 环境门控与跳过原因（直调 lib，零 fs 副作用）
+  const probe = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    const d = await import(${JSON.stringify(join(ENGINE, 'lib', 'distill.mjs'))});
+    const nothing = await d.runStopDistill({ uncoveredFiles: [], diffTexts: new Map() });
+    const noProvider = await d.runStopDistill({ uncoveredFiles: [], diffTexts: new Map(), env: { HARNESS_STOP_DISTILL: '1', ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '' } });
+    console.log(JSON.stringify({
+      nothing: nothing.skipped_reason,
+      noProvider: noProvider.skipped_reason,
+      defaultOff: d.stopDistillConfig({}).enabled === false,
+      gateWithoutKey: d.stopDistillConfig({ HARNESS_STOP_DISTILL: '1' }).provider === null
+    }));`], {
+    cwd: root, encoding: 'utf8',
+    env: { ...process.env, HARNESS_PROJECT_ROOT: root },
+    maxBuffer: 32 * 1024 * 1024, timeout: 120000
+  });
+  const p5cfg = JSON.parse((probe.stdout.match(/\{.*\}/) ?? ['{}'])[0]);
+  test('DISTILL-CFG', 'distill 配置：默认关闭 / 开启无 key→no_provider / 无素材→nothing_to_distill',
+    p5cfg.nothing === 'nothing_to_distill' && p5cfg.noProvider === 'no_provider'
+    && p5cfg.defaultOff === true && p5cfg.gateWithoutKey === true,
+    probe.stdout.trim());
+
   rmSync(root, { recursive: true, force: true });
 }
 

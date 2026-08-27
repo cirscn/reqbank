@@ -10,6 +10,7 @@ import { mergeAssertionPool, runAssertionReview } from './lib/assertions.mjs';
 import { partitionAssertionHits } from './lib/enforcement.mjs';
 import { extractCommands, findUnsafe, tcShell } from './lib/tc-exec.mjs';
 import { getProjectRoot } from './lib/repo-paths.mjs';
+import { runStopDistill } from './lib/distill.mjs';
 import { appendLog, appendPayloadSample, findEventsByTurn, parseHookPayload, readHookStdin } from './lib/learning-log.mjs';
 
 const DIRTY_FILE_LOG_LIMIT = 20;
@@ -84,6 +85,9 @@ const main = async () => {
     ? [...new Set(getDirtyBusinessFileRecords().map((record) => record.file))]
     : [];
   const assertionBearers = auditDirtyFiles && terminalFiles.length ? loadAssertionBearers() : [];
+  // 沉淀层输入：终态裁决循环里顺带记录「零召回且无断言命中」的业务文件与 diff 快照，零额外 IO。
+  const distillUncoveredFiles = [];
+  const distillDiffTexts = new Map();
   if (auditDirtyFiles && terminalFiles.length) {
     try {
       for (const file of terminalFiles.slice(0, DIRTY_FILE_LOG_LIMIT)) {
@@ -102,6 +106,10 @@ const main = async () => {
           recalledReqs: mergeAssertionPool(recalled, assertionBearers),
           matchPathPattern
         });
+        if (!recalled.length && !assertionHits.length) {
+          distillUncoveredFiles.push(file);
+          distillDiffTexts.set(file, diff.slice(0, 4000));
+        }
         const { blocking, warned, ignored } = partitionAssertionHits(assertionHits, diff);
         for (const hit of blocking) {
           terminalConflictIds.push(hit.scopedId);
@@ -176,6 +184,16 @@ const main = async () => {
 
   const allReqsCount = loadAllRequirements().length;
 
+  // Stop 沉淀：只写 inbox/ 草稿卡，不参与 block 判定；任何异常 fail-open 不影响放行/拦截语义。
+  let distill = null;
+  if (auditDirtyFiles) {
+    try {
+      distill = await runStopDistill({ uncoveredFiles: distillUncoveredFiles, diffTexts: distillDiffTexts });
+    } catch (error) {
+      process.stderr.write(`[harness-hook finalize] distill skipped: ${error.message}\n`);
+    }
+  }
+
   const output = {};
   const blocked = issues.length > 0;
   const systemMessage = formatFinalizeFeedback(issues);
@@ -220,7 +238,11 @@ const main = async () => {
       turnEvents
         .flatMap((event) => event.recall_modules ?? [])
         .filter(Boolean)
-    ))
+    )),
+    distill_deterministic_cards: distill?.deterministic_cards ?? [],
+    distill_llm_drafts: distill?.llm_drafts ?? [],
+    distill_llm_enabled: distill?.llm_enabled ?? false,
+    distill_skipped_reason: distill ? (distill.skipped_reason ?? null) : 'audit_skipped'
     }
   });
 };

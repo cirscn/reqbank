@@ -95,6 +95,7 @@ tail -1 .agentdoc/harness/learning-log.jsonl   # 有新事件行 = 钩子已在�
 | `HARNESS_KEEP_RAW_PAYLOAD=1` | hook-payloads 采样保留完整原文（默认只存摘要+预览） |
 | `HARNESS_LLM_CRITIC=1` | 启用 LLM critic，捕获新增式违反禁止条款；需 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`（兼容 `OPENAI_BASE_URL`）；无 key/超时/解析失败一律 fail-open |
 | `HARNESS_LLM_MODEL` / `HARNESS_LLM_TIMEOUT_MS` / `HARNESS_LLM_MAX_RECORDS` | LLM critic 细调 |
+| `HARNESS_STOP_DISTILL=1` | Stop 收尾自动沉淀的 LLM 起草层（零覆盖卡片始终启用，此开关仅控制 LLM 把 diff 起草为「不得」句式候选；key/model 约定同 LLM critic，fail-open） |
 | `HARNESS_IMPACT=off` | 关闭结构影响面层 |
 | `HARNESS_VERIFY_ALLOW_UNSAFE=1` | 越过 verify 的危险命令拒绝（确认安全时才用；拦截不可信内容请用容器，不要用此开关） |
 

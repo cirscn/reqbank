@@ -9,10 +9,11 @@ import { fileURLToPath } from 'node:url';
 const KIT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
 // 测试隔离：所有子进程显式锚定 scratch 根，防止继承外层 HARNESS_PROJECT_ROOT；
-// 剥离 CLAUDECODE / HARNESS_AGENTS，探测测试不随宿主环境漂移
+// 剥离 CLAUDECODE / ZCODE_APP_VERSION / HARNESS_AGENTS，探测测试不随宿主环境漂移
 const isolatedEnv = (root, extra = {}) => {
   const env = { ...process.env, HARNESS_PROJECT_ROOT: root };
   delete env.CLAUDECODE;
+  delete env.ZCODE_APP_VERSION;
   delete env.HARNESS_AGENTS;
   return { ...env, ...extra };
 };

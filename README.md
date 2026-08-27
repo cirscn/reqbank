@@ -160,6 +160,17 @@ export ANTHROPIC_API_KEY=sk-...     # 或 OPENAI_API_KEY（兼容自定义 OPENA
 
 无 key / 超时 / 解析失败一律 fail-open 静默降级，不影响主流程。
 
+### Stop 自动沉淀（运行中入金）
+
+每个回合结束时，Stop 钩子把「改动但零召回、无断言命中」的业务文件自动落成 `inbox/stop-<日期>.md` 草稿卡（始终启用、同日去重），与手动 `mine` / `reflect` 构成完整入金通道：
+
+```bash
+export HARNESS_STOP_DISTILL=1       # 可选：LLM 把 diff 起草为「不得」句式 REQ 候选
+export ANTHROPIC_API_KEY=sk-...     # 或 OPENAI_API_KEY
+```
+
+只写 `inbox/` 永不写 `modules/`；不参与 block 判定，任何失败 fail-open。
+
 ### 结构影响面（跨文件执法）
 
 存在 `.mex/graph.db`（[mex](https://github.com/mex-memory/mex) 图谱）时自动启用：改动共享 util 会把调用邻居所在模块的 REQ 一并召回。`HARNESS_IMPACT=off` 关闭。

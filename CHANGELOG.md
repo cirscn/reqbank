@@ -2,6 +2,17 @@
 
 格式：版本（日期）+ 变更要点。`reqbank changelog [版本]` 查看指定版本；不接参数显示最新。
 
+## 0.16.0（2026-08-27）
+
+**新增：Stop 自动沉淀（P5）——补上「运行中入金」通道**
+
+- 钩子链（pre-critic / critic / finalize）此前只消费既有条款：库为空时召回空转，store 永不增长，沉淀全靠手动 mine / reflect。本版给 Stop 钩子新增自动沉淀层 `engine/lib/distill.mjs`：
+  - 确定性层（始终启用）：终态裁决循环顺带收集「改动但零召回且无断言命中」的业务文件（零额外 IO），落成 `inbox/stop-<日期>.md` 草稿卡，同日同名去重；
+  - LLM 起草层（默认关闭，`HARNESS_STOP_DISTILL=1`）：复用 llm-critic 的 provider 探测 / 超时 / fail-open 约定，把 diff 摘要起草为「不得」句式 REQ 候选。
+- 边界不变：只写 `inbox/` 永不写 `modules/`（人审先于入库）；不参与 block 判定，异常 fail-open 不改变放行/拦截语义；learning-log 新增 `distill_deterministic_cards` / `distill_llm_drafts` / `distill_llm_enabled` / `distill_skipped_reason` 四个审计字段。
+- eval/p3p4 新增 DISTILL / DISTILL-DUP / DISTILL-CFG 回归。
+- 修复 smoke 测试隔离：`isolatedEnv` 补剥 `ZCODE_APP_VERSION`——0.14.0 引入 zcode 自动探测后，在 ZCode 客户端终端内跑套件会让 bare init 误探测为 zcode（exit 0），违背"探测测试不随宿主环境漂移"的本意。
+
 ## 0.15.2（2026-08-26）
 
 **修复：Windows 下 _template 误报**
