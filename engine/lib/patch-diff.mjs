@@ -80,7 +80,9 @@ export const normalizeClaudeCodeEdit = (input) => {
   if (typeof toolInput.command === 'string' && toolInput.command) {
     return null;
   }
-  const filePath = toolInput.file_path ?? toolResponse?.filePath;
+  // Kimi Code 的 Edit/Write 参数叫 path（语义同 Claude 的 file_path）——
+  // 不认它的话文件路径提取为空，critic 召回与沉淀提醒双双静默失效。
+  const filePath = toolInput.file_path ?? toolInput.path ?? toolResponse?.filePath;
   if (typeof filePath !== 'string' || !filePath) {
     return null;
   }

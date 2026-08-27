@@ -177,6 +177,35 @@ const gitAt = (root, args) => spawnSync('git', ['-C', root, ...args], { encoding
   test('DIST-NPM', 'package.json files 含 CHANGELOG.md', (pkg.files ?? []).includes('CHANGELOG.md'));
 }
 
+// ── ⑤ Kimi 适配器 init：全局 config.toml 标记块（幂等 + 备份 + 守卫）─────
+{
+  const root = mkdtempSync(join(tmpdir(), 'reqbank-kimi-init-'));
+  gitAt(root, ['init', '-q']);
+  const kimiConfig = join(root, 'kimi-config.toml');
+  writeFileSync(kimiConfig, 'default_model = "kimi-code/k3"\n');
+  const initEnv = { HARNESS_KIMI_CONFIG: kimiConfig };
+
+  const run1 = spawnAt(root, BIN, ['init', '--agents', 'kimi'], { extraEnv: initEnv });
+  const cfg1 = readFileSync(kimiConfig, 'utf8');
+  test('KIMI-INIT', 'init --agents kimi：写入标记块（5 事件 + .harness 守卫），既有配置保留',
+    run1.status === 0
+    && cfg1.includes('default_model = "kimi-code/k3"')
+    && cfg1.includes('# >>> reqbank-harness-hooks')
+    && (cfg1.match(/\[\[hooks\]\]/g) ?? []).length === 5
+    && cfg1.includes('.harness/engine/kimi-hook.mjs')
+    && existsSync(`${kimiConfig}.bak`),
+    `status=${run1.status} hooks=${(cfg1.match(/\[\[hooks\]\]/g) ?? []).length}`);
+  test('KIMI-INIT-GITIGNORE', 'kimi 适配器：项目 .gitignore 含 kimi-pending-nudge.md',
+    readFileSync(join(root, '.gitignore'), 'utf8').includes('kimi-pending-nudge.md'));
+
+  const run2 = spawnAt(root, BIN, ['init', '--agents', 'kimi'], { extraEnv: initEnv });
+  const cfg2 = readFileSync(kimiConfig, 'utf8');
+  test('KIMI-INIT-IDEM', 'init --agents kimi 幂等：二次运行标记块不重复、内容不变',
+    run2.status === 0 && cfg2 === cfg1
+    && (cfg2.match(/# >>> reqbank-harness-hooks/g) ?? []).length === 1);
+  rmSync(root, { recursive: true, force: true });
+}
+
 // ── 汇总 ─────────────────────────────────────────────────
 const failed = results.filter((r) => !r.pass);
 console.log(`\n═══ P6 版本体验回归：${results.length - failed.length}/${results.length} 通过 ═══`);

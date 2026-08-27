@@ -2,6 +2,27 @@
 
 格式：版本（日期）+ 变更要点。`reqbank changelog [版本]` 查看指定版本；不接参数显示最新。
 
+## 0.19.0（2026-08-27）
+
+**新增 Kimi Code 适配器 + payload 归一兼容 `tool_input.path`**
+
+- **Kimi Code 适配器（`engine/kimi-hook.mjs`）**：`--agents kimi` 或自动探测（`~/.kimi-code` 存在）启用。Kimi 只有用户级钩子，init 往 `~/.kimi-code/config.toml` 写入带 `reqbank-harness-hooks` 标记的全局块——命令自带 `.harness` 存在守卫（未初始化的项目静默跳过）、幂等替换、写前 `.bak` 备份；`HARNESS_KIMI_CONFIG` 可覆盖目标路径（测试用）。协议差异由适配器吸收：
+  - SessionStart / UserPromptSubmit：引擎 `hookSpecificOutput.additionalContext` 解包为纯文本 stdout（Kimi 只把纯文本追加进上下文）；
+  - PreToolUse：pre-critic 的 `permissionDecision` JSON 原样直通（Kimi 原生支持）；
+  - PostToolUse：Kimi 侧 observation-only，critic 的 `[reqbank 自动沉淀]` 提醒无法直达模型——暂存 `.agentdoc/harness/kimi-pending-nudge.md`（init 自动加入 .gitignore），下次 UserPromptSubmit 随召回注入并清空，补回提醒通道；
+  - Stop：引擎 `decision:"block"` 翻译为 Kimi 的 exit 2 + stderr reason。
+- **payload 归一**：`normalizeClaudeCodeEdit` 新增 `tool_input.path` 兜底（Kimi 的 Edit/Write 参数名，语义同 Claude 的 `file_path`）——此前 Kimi 会话的文件路径提取恒为空，critic 召回与沉淀提醒静默失效。
+- eval/p3p4 新增 KIMI-PATH、KIMI-ADP-* 六条回归；eval/update-changelog 新增 KIMI-INIT 三条回归（标记块幂等 / 备份 / gitignore）。
+
+## 0.18.0（2026-08-27）
+
+**修正沉淀提醒粒度 + 模块候选自动起草（P6）——回应「库空不沉淀、多文件失明」两个实测问题**
+
+- 沉淀提醒按文件去重：critic 的 `[reqbank 自动沉淀]` 提示原为「同回合只提醒一次」，多文件回合只有首个文件有提示、其余全部静默。改为按文件去重——同回合每个未提醒过的新文件独立提示，重复编辑同一文件不重复打扰（去重依据 learning-log 同回合同名事件的 `recall_path_candidates`）。实测：同回合 3 文件 2 弹 1 抑制、新回合恢复提醒。
+- 模块候选自动起草：Stop 沉淀层（`engine/lib/distill.mjs` 新增 `writeModuleDrafts`）把本回合零覆盖的真实改动按目录聚合成 `inbox/module-drafts/<slug>.md` 模块草稿——含累计证据文件、按证据父目录生成的建议命中路径（`[strong]` + 自动标签）、四步激活指引；跨回合增量累积、整体重写幂等、同名模块已注册时跳过。此前库空时只能靠人工考古起草，现在证据链自动备好，人审激活从「考古项目」降为「裁剪确认」。
+- 边界不变：只写 `inbox/` 永不写 `modules/`（人审先于入库）；草稿激活前不参与召回；fail-open，不参与 block 判定。learning-log 新增 `distill_module_drafts` 审计字段。
+- agent-guide 增补「自动化行为（0.18.0 起）」章节；旧行为（每回合一次）的 DNUDGE-ONCE 语义由本版起作废。
+
 ## 0.17.0（2026-08-27）
 
 **新增：零覆盖编辑的沉淀提醒——由当次会话 agent 自起草契约候选**

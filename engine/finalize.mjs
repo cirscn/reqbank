@@ -241,6 +241,7 @@ const main = async () => {
     )),
     distill_deterministic_cards: distill?.deterministic_cards ?? [],
     distill_llm_drafts: distill?.llm_drafts ?? [],
+    distill_module_drafts: distill?.module_drafts ?? [],
     distill_llm_enabled: distill?.llm_enabled ?? false,
     distill_skipped_reason: distill ? (distill.skipped_reason ?? null) : 'audit_skipped'
     }

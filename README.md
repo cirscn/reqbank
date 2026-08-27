@@ -30,12 +30,14 @@
 
 ```bash
 cd your-repo
-npx @cirscn/reqbank init    # --agents 可省略：自动探测（CLAUDECODE/ZCODE_APP_VERSION 环境线索、.claude/、.codex/、.zcode/ 目录）
+npx @cirscn/reqbank init    # --agents 可省略：自动探测（CLAUDECODE/ZCODE_APP_VERSION 环境线索、.claude/、.codex/、.zcode/ 目录、~/.kimi-code）
 ```
 
 仓库已有 `.claude/settings.json` 时自动合并钩子条目（原内容原样保留，写前留 `.bak` 备份），仅当该文件无法解析才回退为片段文件待手动合并。init 末尾自动运行 `check`，输出 `✓ check passed` 即安装成功；钩子自新会话起生效。
 
 **ZCode 用户**：适配器写入 `.zcode/config.json`（`hooks.events` 结构 + `enabled:true`，命令用 `${ZCODE_PROJECT_DIR}` 模板变量）。首次使用时客户端会弹出钩子审核——**全选后信任一次**即持续生效（逐条信任会反复弹出）。两个注意：① 仓库若已忽略 `.zcode/` 整目录，想随仓库分发需改为 `.zcode/*` + `!.zcode/config.json` 两行（git 无法重新包含被排除目录内的文件）；② 不要再在用户级 `~/.zcode/cli/config.json` 注册同一引擎——双注册会导致每个事件双跑。ZCode 的 payload 与 Claude Code 契约兼容（snake_case 双发），唯 `turn_id` 只有 camelCase `turnId`，引擎已在 payload 归一层做 fallback。
+
+**Kimi Code 用户**：Kimi 只有用户级钩子（`~/.kimi-code/config.toml`），无项目级配置，故 init 往全局配置写入带 `reqbank-harness-hooks` 标记的守卫块——命令先判 `.harness/engine/kimi-hook.mjs` 存在才执行，未初始化 reqbank 的项目静默跳过；重复 init 幂等替换标记块，写前留 `config.toml.bak`。Kimi 侧协议差异由 `engine/kimi-hook.mjs` 适配器吸收：recall/session-init 的 additionalContext 解包为纯文本 stdout（Kimi 只追加纯文本进上下文）；PreToolUse 直通 pre-critic 的 `permissionDecision`；PostToolUse 在 Kimi 是 observation-only，critic 的沉淀提醒暂存 `.agentdoc/harness/kimi-pending-nudge.md`，下次 UserPromptSubmit 随召回注入并清空；Stop 的 `decision:block` 翻译为 exit 2 + stderr。Kimi 的 Edit/Write 工具参数叫 `path`，引擎 payload 归一层已兼容（0.19.0 起）。
 
 安装产物：
 
@@ -209,6 +211,7 @@ reqbank update --git  # 或走 git 远端（HARNESS_KIT_URL 可覆盖）
 |---|---|---|---|---|---|---|
 | Claude Code | `.claude/settings.json` | ✅ additionalContext 强制推送 | ✅ PreToolUse deny（断言层，Edit/Write/MultiEdit） | ✅ 分类+注入+审计 | ✅ `decision:block` | Windows 需 Git Bash |
 | ZCode | `.zcode/config.json` | ✅ 同上 | ✅ 同上（含 matcher） | ✅ 同上 | ✅ | 首次需客户端审核全选信任一次；payload 兼容 CC（turnId 引擎归一）；勿与用户级 hooks 双注册 |
+| Kimi Code | `~/.kimi-code/config.toml`（全局守卫块） | ✅ 纯文本 stdout 注入 | ✅ 直通 pre-critic `permissionDecision` | ⚠️ observation-only：提醒暂存后随下次召回注入 | ✅ 翻译为 exit 2 + stderr | 钩子全局注册、按 `.harness` 守卫生效；`HARNESS_KIMI_CONFIG` 可覆盖配置路径（测试用） |
 | Codex CLI | `.codex/hooks.json` | ✅ 同上 | ❌ 协议无 PreToolUse 事件 | ✅ 同上 | ✅ 兼容两种 block 形状 | 多层配置全部加载：包内会话由包内 hooks 独占，根桥自动 fail-open 让位 |
 | Grok | `.grok/hooks` + rules 文件中继 | ⚠️ 写入 rules 文件，agent 同回合手读 | ⚠️ 仅审计日志 | ❌ 协议不允许 | 被动钩子 stdout 被忽略；多会话 rules 文件 last-writer-wins |
 | 无钩子工具（Cursor 等） | 仅 AGENTS.md 指令 | ❌ 手动 `reqbank scope` | ❌ | ❌ | 建议配合 CI 门禁补偿 |

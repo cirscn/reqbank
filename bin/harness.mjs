@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // harness — 需求记忆脚手架 CLI
 // 用法：
-//   harness init [--agents codex,claude,zcode,grok]   初始化 .agentdoc/harness 脚手架并渲染 agent 适配器
+//   harness init [--agents codex,claude,zcode,kimi,grok]   初始化 .agentdoc/harness 脚手架并渲染 agent 适配器
 //                                               --agents 省略时自动探测（CLAUDECODE/ZCODE 环境线索 / .claude .codex .zcode 目录）
 //   reqbank scope <task...>                     任务 → REQ/TC 证据链（JSONL）
 //   harness check                               脚手架健康检查（结构完整性 / 占位符残留）
@@ -18,7 +18,7 @@
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dynamicImport } from '../engine/lib/repo-paths.mjs';
 
@@ -200,8 +200,13 @@ const cmdInit = async (options) => {
     if (existsSync(join(root, '.zcode'))) {
       detected.add('zcode');
     }
+    if (!process.env.HARNESS_NO_KIMI_DETECT && existsSync(join(homedir(), '.kimi-code'))) {
+      // Kimi Code 只有用户级配置（~/.kimi-code/config.toml），无项目目录可判——
+      // 以「本机装过 Kimi」为线索；注册块自带 .harness 存在守卫，其他项目不受污染
+      detected.add('kimi');
+    }
     if (!detected.size) {
-      console.error('[reqbank] 未检测到已配置的 agent（无 CLAUDECODE/ZCODE 环境线索、无 .claude/.codex/.zcode 目录）。请用 --agents codex,claude,zcode 指定，或询问用户当前使用什么工具。');
+      console.error('[reqbank] 未检测到已配置的 agent（无 CLAUDECODE/ZCODE 环境线索、无 .claude/.codex/.zcode 目录、无 ~/.kimi-code）。请用 --agents codex,claude,zcode,kimi 指定，或询问用户当前使用什么工具。');
       process.exit(2);
     }
     agents = [...detected];
@@ -313,6 +318,46 @@ const cmdInit = async (options) => {
       }
       writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
       console.log('[reqbank] zcode adapter → .zcode/config.json（首次使用需在客户端对钩子审核全选信任一次）');
+    } else if (agent === 'kimi') {
+      // Kimi Code 只有用户级钩子（~/.kimi-code/config.toml），无项目级配置——
+      // 注册带标记的全局块，命令自带 .harness 存在守卫：仅初始化过 reqbank 的仓库触发，
+      // 其余项目静默跳过。幂等：已有标记块则整体替换（升级场景）；改动前备份一次。
+      const kimiDir = join(homedir(), '.kimi-code');
+      const kimiConfigPath = process.env.HARNESS_KIMI_CONFIG || join(kimiDir, 'config.toml');
+      mkdirSync(dirname(kimiConfigPath), { recursive: true });
+      const kimiGuard = (event) =>
+        `if [ -f .harness/engine/kimi-hook.mjs ]; then node .harness/engine/kimi-hook.mjs ${event}; else { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi`;
+      const kimiHookEntry = (event, timeout, matcher) => [
+        '[[hooks]]',
+        `event = "${event}"`,
+        ...(matcher ? [`matcher = "${matcher}"`] : []),
+        `command = "${kimiGuard(event)}"`,
+        `timeout = ${timeout}`
+      ].join('\n');
+      const EDIT_MATCHER = 'Edit|Write|MultiEdit|apply_patch|search_replace';
+      const kimiBlock = [
+        '# >>> reqbank-harness-hooks（项目记忆层；仅含 .harness/engine/kimi-hook.mjs 的仓库生效，其余静默跳过）>>>',
+        kimiHookEntry('SessionStart', 30),
+        kimiHookEntry('UserPromptSubmit', 30),
+        kimiHookEntry('PreToolUse', 30, EDIT_MATCHER),
+        kimiHookEntry('PostToolUse', 30, EDIT_MATCHER),
+        kimiHookEntry('Stop', 60),
+        '# <<< reqbank-harness-hooks <<<'
+      ].join('\n');
+      const BLOCK_RE = /# >>> reqbank-harness-hooks[\s\S]*?# <<< reqbank-harness-hooks <<</;
+      const existing = existsSync(kimiConfigPath) ? readFileSync(kimiConfigPath, 'utf8') : '';
+      const next = BLOCK_RE.test(existing)
+        ? existing.replace(BLOCK_RE, kimiBlock)
+        : `${existing}${existing && !existing.endsWith('\n') ? '\n' : ''}${existing ? '\n' : ''}${kimiBlock}\n`;
+      if (next !== existing) {
+        if (existsSync(kimiConfigPath)) {
+          copyFileSync(kimiConfigPath, `${kimiConfigPath}.bak`);
+        }
+        writeFileSync(kimiConfigPath, next);
+        console.log('[reqbank] kimi adapter → ~/.kimi-code/config.toml（已备份 .bak；新会话生效）');
+      } else {
+        console.log('[reqbank] kimi adapter 已就位，无需修改');
+      }
     } else if (agent === 'grok') {
       console.log('[reqbank] grok 适配器为实验特性：请参考 README「多包仓库 / Grok 桥接」一节手动配置');
     } else {
@@ -328,6 +373,10 @@ const cmdInit = async (options) => {
   if (agents.includes('claude')) {
     // Claude Code 个人权限白名单（点"始终允许"自动累积），按约定不进库，避免搭车提交与信息泄露
     gitignoreEntries.push('.claude/settings.local.json');
+  }
+  if (agents.includes('kimi')) {
+    // Kimi 适配器的 critic 提醒暂存文件（observation-only 桥接），会话态不进库
+    gitignoreEntries.push('.agentdoc/harness/kimi-pending-nudge.md');
   }
   const gitignoreAdded = ensureGitignoreEntries(root, gitignoreEntries);
   if (gitignoreAdded.length) {
@@ -355,7 +404,7 @@ const cmdInit = async (options) => {
   console.log(`  2. 用 reqbank scope "任务描述" 验证召回（当前 ${fresh ? '空脚手架，先沉淀第一条 REQ' : '已有记忆'}）`);
   console.log('  3. 提交前保持钩子静默通过；确定性冲突会被 Stop 拦截');
   console.log('  4. 冷启动沉淀：`reqbank mine` 考古候选 → inbox/ 人审入库；起草协议见 .agentdoc/harness/agent-guide.md');
-  console.log('  5. 持续回流：`reqbank reflect` 把重复违规聚合成条款建议（可配 --transcript 消费会话纠错）；Stop 钩子每回合自动沉淀零覆盖卡片到 inbox/stop-<日期>.md，编辑零覆盖文件时同步提醒当次 agent 起草 [ai-draft] 候选');
+  console.log('  5. 持续回流：`reqbank reflect` 把重复违规聚合成条款建议（可配 --transcript 消费会话纠错）');
 
   // P2 init --gate：把 gate 装配到提交/CI 时点（one engine, one verdict 的第二入口）
   if (options.gate) {

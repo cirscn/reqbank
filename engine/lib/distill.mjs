@@ -11,6 +11,9 @@ import { llmCriticConfig } from './llm-critic.mjs';
 const MAX_FILES = 10;
 const MAX_DIFF_CHARS = 12_000;
 const MAX_DRAFTS = 3;
+const MAX_MODULE_DRAFTS = 3;
+const MAX_EVIDENCE_PER_DRAFT = 40;
+const MAX_HIT_PATHS_PER_DRAFT = 8;
 
 export const stopDistillConfig = (env = process.env) => {
   const base = llmCriticConfig(env);
@@ -168,15 +171,104 @@ const appendCardsOnce = ({ path, stamp, cards }) => {
   return fresh.map((card) => card.title);
 };
 
+// ── 模块候选自动起草（P6）：把零覆盖改动按目录聚成「待激活」模块草稿 ──
+// 边界与卡片沉淀一致：只写 inbox/module-drafts/，永不写 modules/（人审先于入库）；
+// 同名模块已注册时跳过；跨回合增量累积证据文件，草稿整体重写保证幂等。
+
+// 粗粒度分组：src/apps/<app> 一档（整个应用一个候选），src/<top> 一档，其余取前两段。
+const inferCoarseScope = (file) => {
+  const segments = file.split('/');
+  if (segments[0] === 'src' && segments[1] === 'apps') {
+    return segments.slice(0, 3).join('/');
+  }
+  return segments.slice(0, 2).join('/');
+};
+
+const slugForScope = (scope) => scope.replace(/^src\//, '').replace(/\//g, '-');
+
+// 从已有草稿的「证据文件」段提取文件列表（`- \`path\`` 行），供跨回合累积。
+const readDraftEvidence = (content) => {
+  const section = String(content ?? '').split(/^## /m).find((part) => part.startsWith('证据文件'));
+  if (!section) {
+    return [];
+  }
+  return [...new Set([...section.matchAll(/^- `([^`]+)`$/gm)].map((match) => match[1]))];
+};
+
+export const writeModuleDrafts = ({ files, stamp }) => {
+  const groups = new Map();
+  for (const file of files) {
+    const scope = inferCoarseScope(file);
+    if (!groups.has(scope)) {
+      groups.set(scope, new Set());
+    }
+    groups.get(scope).add(file);
+  }
+  const written = [];
+  for (const [scope, fileSet] of groups) {
+    if (written.length >= MAX_MODULE_DRAFTS) {
+      break;
+    }
+    const slug = slugForScope(scope);
+    if (existsSync(repoPath('.agentdoc', 'harness', 'modules', slug))) {
+      continue; // 同名模块已注册：草稿无意义，跳过
+    }
+    const draftPath = join(repoPath('.agentdoc', 'harness', 'inbox', 'module-drafts'), `${slug}.md`);
+    const evidence = [...new Set([
+      ...readDraftEvidence(existsSync(draftPath) ? readFileSync(draftPath, 'utf8') : ''),
+      ...fileSet
+    ])].slice(0, MAX_EVIDENCE_PER_DRAFT);
+    // 命中路径取证据文件的直接父目录（比粗粒度 scope 更精准，召回不误伤兄弟目录）
+    const hitPaths = [...new Set(evidence.map((file) => `${dirname(file)}/`))].slice(0, MAX_HIT_PATHS_PER_DRAFT);
+    const tags = [...new Set(hitPaths
+      .flatMap((path) => path.split('/'))
+      .filter((segment) => segment && segment !== 'src' && segment !== 'apps'))].slice(0, 6);
+    const tagText = tags.join(',') || 'general';
+    const lines = [
+      `# 模块候选：${slug}（自动起草 · 待人审激活）`,
+      '',
+      `> 由 Stop 钩子基于真实改动自动生成/增量维护，最近刷新：${stamp}。`,
+      '> 本文件只是草稿：激活前不参与召回，任何钩子都不会匹配它。',
+      '',
+      `## 证据文件（累计 ${evidence.length} 个）`,
+      '',
+      ...evidence.map((file) => `- \`${file}\``),
+      '',
+      '## 建议命中路径（人审裁剪后粘进模块 index.md）',
+      '',
+      ...hitPaths.map((path) => `- \`${path}\` [strong] | ${tagText}`),
+      '',
+      '## 激活步骤（人审通过后）',
+      '',
+      `1. \`mkdir -p .agentdoc/harness/modules/${slug} && cp .agentdoc/harness/modules/_template/* .agentdoc/harness/modules/${slug}/\``,
+      `2. 把上方「建议命中路径」按需裁剪后粘进 \`modules/${slug}/index.md\` 的「命中路径」。`,
+      `3. 在 \`.agentdoc/harness/index.md\` 的「已建模块」登记一行：\`${slug} | .agentdoc/harness/modules/${slug}/ | ${tagText}\`。`,
+      `4. 按 agent-guide 五步协议补 REQ/TC（证据文件对应的 inbox/stop-*.md 草稿卡可直接改写），跑 \`node .harness/bin/harness.mjs scope "自验任务"\` 确认可召回。`,
+      '5. 激活后删除本草稿文件。',
+      ''
+    ];
+    mkdirSync(dirname(draftPath), { recursive: true });
+    writeFileSync(draftPath, lines.join('\n'), 'utf8');
+    written.push({
+      slug,
+      path: `.agentdoc/harness/inbox/module-drafts/${slug}.md`,
+      evidence_count: evidence.length,
+      hit_paths: hitPaths
+    });
+  }
+  return written;
+};
+
 /**
  * Stop 时沉淀入口（fail-open，绝不抛错到调用方的执法路径之外）：
- * - uncoveredFiles 非空 → 确定性「零覆盖」卡片（始终启用，无网络调用）
+ * - uncoveredFiles 非空 → 确定性「零覆盖」卡片 + 模块候选自动起草（始终启用，无网络调用）
  * - HARNESS_STOP_DISTILL=1 且探测到 provider → 用 diff 摘要起草 REQ 候选
  */
 export const runStopDistill = async ({ uncoveredFiles = [], diffTexts = new Map(), env = process.env } = {}) => {
   const result = {
     deterministic_cards: [],
     llm_drafts: [],
+    module_drafts: [],
     llm_enabled: false,
     skipped_reason: null
   };
@@ -194,12 +286,31 @@ export const runStopDistill = async ({ uncoveredFiles = [], diffTexts = new Map(
 
   const stamp = new Date().toISOString().slice(0, 10);
   const path = repoPath('.agentdoc', 'harness', 'inbox', `stop-${stamp}.md`);
-  const cards = files.map((file) => ({
-    kind: 'stop-uncovered',
-    title: `本回合改动未命中任何模块：${file}`,
-    tags: '',
-    advice: '该文件不在任何模块命中路径内——初始化模块 harness 或登记进 index.md「待初始化高风险模块」（agent-guide 五步协议）。'
-  }));
+
+  // 模块候选自动起草：失败不影响卡片沉淀（fail-open）。
+  let moduleDrafts = [];
+  if (files.length) {
+    try {
+      moduleDrafts = writeModuleDrafts({ files, stamp });
+    } catch (error) {
+      process.stderr.write(`[harness distill] module draft skipped: ${error.message}\n`);
+    }
+  }
+  result.module_drafts = moduleDrafts;
+
+  const draftBySlug = new Map(moduleDrafts.map((draft) => [draft.slug, draft]));
+  const cards = files.map((file) => {
+    const draft = draftBySlug.get(slugForScope(inferCoarseScope(file)));
+    const advice = draft
+      ? `该文件不在任何模块命中路径内——模块候选已自动起草：${draft.path}（累计证据 ${draft.evidence_count} 个文件），人审后按草稿内步骤激活。`
+      : '该文件不在任何模块命中路径内——初始化模块 harness 或登记进 index.md「待初始化高风险模块」（agent-guide 五步协议）。';
+    return {
+      kind: 'stop-uncovered',
+      title: `本回合改动未命中任何模块：${file}`,
+      tags: '',
+      advice
+    };
+  });
 
   if (wantLlm) {
     const draftCards = await llmDraftCandidates({ digest: buildDiffDigest(diffTexts), config });

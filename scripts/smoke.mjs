@@ -11,7 +11,8 @@ const failures = [];
 // 测试隔离：所有子进程显式锚定 scratch 根，防止继承外层 HARNESS_PROJECT_ROOT；
 // 剥离 CLAUDECODE / ZCODE_APP_VERSION / HARNESS_AGENTS，探测测试不随宿主环境漂移
 const isolatedEnv = (root, extra = {}) => {
-  const env = { ...process.env, HARNESS_PROJECT_ROOT: root };
+  // HARNESS_NO_KIMI_DETECT：kimi 探测看的是 ~/.kimi-code（用户级，env 剥不离），用开关保证隔离
+  const env = { ...process.env, HARNESS_PROJECT_ROOT: root, HARNESS_NO_KIMI_DETECT: '1' };
   delete env.CLAUDECODE;
   delete env.ZCODE_APP_VERSION;
   delete env.HARNESS_AGENTS;

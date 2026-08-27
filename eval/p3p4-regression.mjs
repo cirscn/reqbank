@@ -417,6 +417,61 @@ const lastLogOf = (root, event, turnId) => readFileSync(join(root, '.agentdoc', 
     dn2Out.hookSpecificOutput === undefined
     && lastLogOf(root, 'PostToolUse', 'p34-dn1')?.distill_nudge_emitted !== true);
 
+  // Kimi payload 形状：Edit/Write 参数叫 path（非 file_path），引擎必须照常提取改动文件
+  const kp1 = spawnAt(root, join(ENGINE, 'critic.mjs'), [], {
+    input: JSON.stringify({
+      hook_event_name: 'PostToolUse', tool_name: 'Edit',
+      tool_input: { path: 'src/orphan/kimi.ts', old_string: 'a', new_string: 'b' },
+      cwd: root, session_id: 'p34', turn_id: 'p34-kimi1'
+    })
+  });
+  const kp1Out = JSON.parse(kp1.stdout || '{}');
+  test('KIMI-PATH', 'Kimi 形状：tool_input.path 归一——零覆盖编辑照常触发召回与沉淀提醒',
+    String(kp1Out.hookSpecificOutput?.additionalContext ?? '').includes('src/orphan/kimi.ts')
+    && lastLogOf(root, 'PostToolUse', 'p34-kimi1')?.recall_path_candidates?.includes('src/orphan/kimi.ts') === true,
+    `candidates=${JSON.stringify(lastLogOf(root, 'PostToolUse', 'p34-kimi1')?.recall_path_candidates)}`);
+
+  rmSync(root, { recursive: true, force: true });
+}
+
+// ══ Kimi 适配器（engine/kimi-hook.mjs）：事件翻译 + 提醒桥 ═══════════════
+{
+  const root = join(tmpdir(), `reqbank-kimi-${Date.now().toString(36)}`);
+  buildRoot(root);
+  const ADAPTER = join(ENGINE, 'kimi-hook.mjs');
+  const kimiRun = (event, payload) => spawnAt(root, ADAPTER, [event], {
+    input: JSON.stringify({ hook_event_name: event, cwd: root, session_id: 'kimi-s', ...payload })
+  });
+  const PENDING = join(root, '.agentdoc', 'harness', 'kimi-pending-nudge.md');
+
+  const ss = kimiRun('SessionStart', { source: 'startup' });
+  test('KIMI-ADP-SESSION', 'SessionStart：引擎状态行解包为纯文本 stdout',
+    ss.status === 0 && ss.stdout.includes('Harness:'));
+
+  const pt = kimiRun('PostToolUse', {
+    turn_id: 'k-t1', tool_name: 'Edit',
+    tool_input: { path: 'src/orphan/bridge.ts', old_string: 'a', new_string: 'b' }
+  });
+  test('KIMI-ADP-STASH', 'PostToolUse：observation-only 下 critic 提醒落暂存文件而非 stdout',
+    pt.status === 0 && !pt.stdout.trim() && existsSync(PENDING)
+    && readFileSync(PENDING, 'utf8').includes('[reqbank 自动沉淀]'));
+
+  const up = kimiRun('UserPromptSubmit', { turn_id: 'k-t2', prompt: '修改 src/demo/agent.ts 的错误处理' });
+  test('KIMI-ADP-RECALL', 'UserPromptSubmit：召回正文注入 + 暂存提醒随附并清空',
+    up.status === 0 && up.stdout.includes('REQ-001')
+    && up.stdout.includes('reqbank 暂存提醒') && !existsSync(PENDING));
+
+  const pre = kimiRun('PreToolUse', {
+    turn_id: 'k-t3', tool_name: 'Edit',
+    tool_input: { path: 'src/demo/agent.ts', old_string: 'x', new_string: 'y' }
+  });
+  test('KIMI-ADP-PRE', 'PreToolUse：pre-critic 输出 JSON 原样直通（permissionDecision 形状）',
+    pre.status === 0 && (() => { try { JSON.parse(pre.stdout || '{}'); return true; } catch { return false; } })());
+
+  const st = kimiRun('Stop', { turn_id: 'k-t3' });
+  test('KIMI-ADP-STOP', 'Stop：无阻断时 exit 0 且无噪声输出',
+    st.status === 0 && !st.stdout.trim());
+
   rmSync(root, { recursive: true, force: true });
 }
 

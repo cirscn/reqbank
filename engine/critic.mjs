@@ -80,12 +80,18 @@ const main = async () => {
 
   if (recalledReqs.length === 0 && assertionHits.length === 0) {
     // P5 沉淀提醒：零覆盖业务编辑触发当次会话 AI 自起草契约候选——提取靠有完整上下文的当前
-    // agent 本身，不依赖外部 LLM key；同回合只提醒一次。
-    const nudgeAlready = turnId
-      ? findEventsByTurn(turnId).some((event) => event.event === 'PostToolUse' && event.distill_nudge_emitted)
-      : false;
+    // agent 本身，不依赖外部 LLM key。按文件去重（0.18.0 起，替代旧的每回合一次）：
+    // 多文件回合每个未提醒过的新文件都独立提示，重复编辑同一文件不重复打扰。
+    const nudgedFiles = new Set(turnId
+      ? findEventsByTurn(turnId)
+          .filter((event) => event.event === 'PostToolUse' && event.distill_nudge_emitted)
+          .flatMap((event) => event.recall_path_candidates ?? [])
+      : []);
     // 只对业务文件提醒：引擎/真源等元路径的编辑不算沉淀素材
     const nudgeTargets = filePaths.filter((filePath) => {
+      if (nudgedFiles.has(filePath)) {
+        return false;
+      }
       try {
         return isBusinessFile(filePath);
       } catch {
@@ -94,15 +100,16 @@ const main = async () => {
     });
     let distillNudgeEmitted = false;
     let output = {};
-    if (!nudgeAlready && nudgeTargets.length) {
+    if (nudgeTargets.length) {
       const stamp = new Date().toISOString().slice(0, 10);
       const nudgeContext = [
-        `[reqbank 自动沉淀] 本回合首次改动未注册模块的业务文件：${nudgeTargets.slice(0, 3).join('、')}`,
+        `[reqbank 自动沉淀] 本回合改动未注册模块的业务文件（每文件提醒一次）：${nudgeTargets.slice(0, 3).join('、')}`,
         `若本次修改形成持久业务契约或修复了可复用 bug，请在收尾前向 .agentdoc/harness/inbox/stop-${stamp}.md 追加人审草稿卡（同名卡片已存在则跳过）：`,
         'N. [ai-draft] <不超过40字、含否定语义的标题>',
         '   标签：<逗号分隔标签>',
         '   建议：候选正文：<「不得」句式契约——真源字段名、守卫 token、边界与违反后果；无值得沉淀的契约则不追加>',
-        '只写 inbox 草稿，不得直接修改 modules/；格式细则见 .agentdoc/harness/agent-guide.md。'
+        '若该区域尚无模块覆盖，收尾时 Stop 钩子会按真实改动自动起草模块候选到 inbox/module-drafts/；',
+        '也可在本回合内按 agent-guide 五步协议直接初始化模块 harness。只写 inbox 草稿，不得直接修改 modules/。'
       ].join('\n');
       output = {
         hookSpecificOutput: {
