@@ -8,6 +8,11 @@
 //     注释与字符串字面量里的提及被推翻（forbid-call 不误报的核心价值）
 //   - 解析带 ERROR（diff 片段不完整）或无语法包/vendor 缺失 → 对非注释行保留字符串命中
 //     （AST 是增强不是前提：宁可可抑制的误拦，不可静默放行；整行注释不是执行点，不回退）
+//
+// 台账/文档自匹配修复：requirements.md 的断言行与澄清、tests.md 的 TC V 命令是 pattern 的
+// 「定义处」，必然引用 pattern 本身——对这类文件的新增行做 forbid-add/结构化扫描只会
+// 「守卫定义命中自己」。docs-only 编辑（全部改动文件均为 .agentdoc/** 或 *.md）跳过新增行
+// 扫描；no-delete（防悄悄删守卫，对台账自身同样有效）与 forbid-path（路径保护）不受影响。
 
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -41,6 +46,10 @@ const negationPrefilter = (line, pattern) =>
   || new RegExp(`(^|[^A-Za-z0-9_])not\\s+${escapeRegExp(pattern)}(?![A-Za-z0-9_])`).test(line);
 
 const STRUCTURAL_KINDS = new Set(['forbid-call', 'no-negate']);
+
+// 台账与文档（.agentdoc/**、*.md）：断言的「定义处」，不是执行点。
+const isLedgerOrDocPath = (filePath) =>
+  /(?:^|\/)\.agentdoc(?:\/|$)/.test(String(filePath ?? '')) || /\.md$/i.test(String(filePath ?? ''));
 
 /** 整行都是注释：不是执行点。`foo(); // x` 不算。Javadoc 续行 ` * text` 算。 */
 const isCommentOnlyLine = (line) => {
@@ -82,6 +91,9 @@ export const runAssertionReview = async ({ diff, filePaths = [], recalledReqs = 
     return [];
   }
   const { added, removed } = splitRawLines(diff);
+  // docs-only 编辑（台账/文档）：pattern 的定义处必然引用自身——跳过 forbid-add/结构化的
+  // 新增行扫描，避免守卫定义自匹配误报；no-delete 与 forbid-path 不受影响。
+  const docsOnly = filePaths.length > 0 && filePaths.every(isLedgerOrDocPath);
   const hits = [];
   // 预筛命中、待 AST 确认的结构化候选：[{ record, assertion, line }]
   const structuralCandidates = [];
@@ -97,14 +109,16 @@ export const runAssertionReview = async ({ diff, filePaths = [], recalledReqs = 
         continue;
       }
       if (STRUCTURAL_KINDS.has(assertion.kind)) {
-        const matcher = assertion.kind === 'no-negate'
-          ? (line) => negationPrefilter(line, assertion.pattern)
-          : (line) => containsPattern(line, assertion.pattern);
-        for (const line of added) {
-          if (isCommentOnlyLine(line)) continue;
-          if (matcher(line)) {
-            structuralCandidates.push({ record, assertion, line });
-            break; // 每条断言记一次即可
+        if (!docsOnly) {
+          const matcher = assertion.kind === 'no-negate'
+            ? (line) => negationPrefilter(line, assertion.pattern)
+            : (line) => containsPattern(line, assertion.pattern);
+          for (const line of added) {
+            if (isCommentOnlyLine(line)) continue;
+            if (matcher(line)) {
+              structuralCandidates.push({ record, assertion, line });
+              break; // 每条断言记一次即可
+            }
           }
         }
         continue;
@@ -131,8 +145,8 @@ export const runAssertionReview = async ({ diff, filePaths = [], recalledReqs = 
         }
         continue;
       }
-      const lines = added;
-      for (const line of lines) {
+      if (docsOnly) continue;
+      for (const line of added) {
         if (containsPattern(line, assertion.pattern)) {
           hits.push({ record, kind: assertion.kind, pattern: assertion.pattern, matchedLine: line.trim().slice(0, 160), file: filePaths[0] ?? '' });
           break; // 每条断言记一次即可

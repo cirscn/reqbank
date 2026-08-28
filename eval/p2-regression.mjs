@@ -204,6 +204,44 @@ const lastLogOf = (root, event, turnId) => readFileSync(join(root, '.agentdoc', 
   rmSync(root, { recursive: true, force: true });
 }
 
+// ══ ②b 台账/文档自匹配修复 ══════════════════════════════
+{
+  const root = join(tmpdir(), `reqbank-p2-ledger-${Date.now().toString(36)}`);
+  buildRoot(root);
+
+  // 台账新增断言定义行：pattern 必然出现在定义行里——docs-only 编辑不再「守卫定义命中自己」
+  const turnL1 = 'p2-ledger-1';
+  criticRun(root, turnL1, patchOf('.agentdoc/harness/modules/demo/requirements.md',
+    ['REQ-003 | forbid-path | src/vault/'],
+    ['REQ-003 | forbid-path | src/vault/', 'REQ-004 | forbid-add | message.error']));
+  const logL1 = lastLogOf(root, 'PostToolUse', turnL1);
+  test('LEDGER-FA-SKIP', '台账新增断言定义行（含 pattern）→ 不自匹配误拦',
+    (logL1.assertion_hits ?? []).length === 0 && (logL1.conflict_ids ?? []).length === 0,
+    `hits=${JSON.stringify(logL1.assertion_hits)} conflicts=${JSON.stringify(logL1.conflict_ids)}`);
+
+  // tests.md 新增 TC 行（V 命令引用 pattern）→ 同样跳过
+  const turnL2 = 'p2-ledger-2';
+  criticRun(root, turnL2, patchOf('.agentdoc/harness/modules/demo/tests.md',
+    ['TC-003: G=保险库 | W=改动 | E=拒绝 | V=`node -e "if(!require(\'fs\').existsSync(\'package.json\'))process.exit(1)"`'],
+    ['TC-003: G=保险库 | W=改动 | E=拒绝 | V=`node -e "if(!require(\'fs\').existsSync(\'package.json\'))process.exit(1)"`',
+      'TC-004: G=通路 | W=提示 | E=统一出口 | V=`grep -c "message.error" src/demo/agent.ts`']));
+  const logL2 = lastLogOf(root, 'PostToolUse', turnL2);
+  test('LEDGER-TC-SKIP', 'tests.md 新增 TC 守卫命令（含 pattern）→ 不误拦',
+    (logL2.assertion_hits ?? []).length === 0,
+    `hits=${JSON.stringify(logL2.assertion_hits)}`);
+
+  // 台账删守卫断言行：no-delete 保持有效（防悄悄退役条款；docs-skip 只豁免新增行扫描）
+  const turnL3 = 'p2-ledger-3';
+  criticRun(root, turnL3, patchOf('.agentdoc/harness/modules/demo/requirements.md',
+    ['REQ-001 | no-delete | isMessageHandledError'], []));
+  const logL3 = lastLogOf(root, 'PostToolUse', turnL3);
+  test('LEDGER-ND-KEPT', '台账删除守卫断言行 → no-delete 仍拦',
+    logL3.critic_severity === 'critical' && (logL3.assertion_hits ?? []).some((h) => h.kind === 'no-delete'),
+    `severity=${logL3.critic_severity} hits=${JSON.stringify(logL3.assertion_hits)}`);
+
+  rmSync(root, { recursive: true, force: true });
+}
+
 // ══ ③ gate + B5/B6 修复 ═════════════════════════════════
 {
   const root = join(tmpdir(), `reqbank-p2-gate-${Date.now().toString(36)}`);

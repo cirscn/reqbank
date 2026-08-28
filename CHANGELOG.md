@@ -2,6 +2,13 @@
 
 格式：版本（日期）+ 变更要点。`reqbank changelog [版本]` 查看指定版本；不接参数显示最新。
 
+## 0.19.2（2026-08-28）
+
+**修复：断言层对台账/文档编辑的自匹配误拦 + 起草白话文纪律**
+
+- **断言自匹配修复（`engine/lib/assertions.mjs`）**：requirements.md 断言行/澄清、tests.md TC V 命令是 pattern 的「定义处」，必然引用 pattern 本身——此前编辑台账也会被写前/事后断言层当成违规硬拦（实证：登记新条款时每一步都要 `reqbank-ignore` 降级）。`runAssertionReview` 新增 docs-only 短路：改动文件全部为 `.agentdoc/**` 或 `*.md` 时跳过 forbid-add/结构化断言的新增行扫描；no-delete（防悄悄删守卫）与 forbid-path 保持有效。回归：P2 `LEDGER-FA-SKIP` / `LEDGER-TC-SKIP` / `LEDGER-ND-KEPT`。
+- **白话文纪律（`templates/harness/agent-guide.md` 第 3 步）**：REQ 澄清正文与 inbox 草稿卡必须让未参与的开发一次读懂——先场景、再禁止、后后果，术语首现给一句话解释，附正反例；自检标准是「能一句话复述这条不许我干什么」。人审第一眼读不懂的草稿等于没有草稿。
+
 ## 0.19.1（2026-08-28）
 
 **修复：Kimi 适配器 drain 后清理 `.draining` 暂存文件**
